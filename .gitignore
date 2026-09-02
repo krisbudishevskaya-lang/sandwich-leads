@@ -1,0 +1,21 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Misc
+*.log
+
+# Локальный резервный журнал лидов (PROMPT 6) — содержит персональные
+# данные (имя, телефон), не должен попадать в Git.
+data/
