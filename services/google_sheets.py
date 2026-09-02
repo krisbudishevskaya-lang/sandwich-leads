@@ -27,19 +27,6 @@ PROMPT 6 — реализация:
     - никакая ошибка Google Sheets (включая credentials) никогда не
       передаётся пользователю и не приводит к падению запроса.
 
-Этап 2 (два коммерческих сценария — construction / panels):
-    - добавлены колонки "Тип заявки" и "Тип панели" — намеренно
-      ДОБАВЛЕНЫ В КОНЕЦ списка колонок, а не в середину (как в
-      иллюстративном примере уточнения к ТЗ), чтобы не сдвинуть уже
-      существующие реальные строки, записанные в таблицу до этого
-      этапа. Порядок ранее существовавших 31 колонки не меняется;
-    - все отображаемые в Google Sheets значения переведены на русский
-      язык (объект, утеплитель, толщина, монтаж, срок, проект, тип
-      клиента, бюджет, тип заявки, тип панели) через общий модуль
-      services/display_labels — внутренние enum-значения бекенда при
-      этом не меняются, перевод применяется только здесь, при
-      формировании строки таблицы.
-
 ВАЖНО: реальное подключение к Google Sheets требует пользовательских
 credentials и не было выполнено в этой песочнице — библиотеки gspread/
 google-auth здесь не установлены, а .env не содержит реальных ключей.
@@ -48,28 +35,13 @@ google-auth здесь не установлены, а .env не содержи�
 import json
 import os
 
-from services.display_labels import (
-    DEADLINE_LABELS,
-    INSTALLATION_LABELS,
-    INSULATION_LABELS,
-    LEAD_TYPE_LABELS_SHEETS,
-    OBJECT_LABELS,
-    PANEL_TYPE_LABELS,
-    PROJECT_LABELS,
-    THICKNESS_LABELS,
-    get_label,
-)
-from services.lead_calculator import BUDGET_LABELS, CLIENT_TYPE_LABELS
-
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCAL_FALLBACK_PATH = os.path.join(_PROJECT_ROOT, "data", "leads_local_fallback.jsonl")
 
 SHEET_NAME = "Лиды"
 
-# Порядок первых 31 колонки соответствует Master ТЗ §45 и НЕ меняется
-# (существующие реальные строки в таблице уже используют этот порядок).
-# "Тип заявки" и "Тип панели" (Этап 2) добавлены в КОНЕЦ списка, чтобы
-# не сдвинуть ранее записанные строки.
+# Порядок колонок соответствует Master ТЗ §45, ограничен полями,
+# известными на момент подачи заявки (см. docstring выше).
 SHEET_COLUMNS = [
     "Lead ID", "Дата", "Источник",
     "UTM Source", "UTM Medium", "UTM Campaign", "UTM Content", "UTM Term",
@@ -79,19 +51,11 @@ SHEET_COLUMNS = [
     "Имя", "Телефон", "Тип клиента", "Компания",
     "Предварительная стоимость (мин)", "Предварительная стоимость (макс)",
     "Статус", "Согласие на обработку ПД", "Согласие на передачу поставщикам",
-    "Тип заявки", "Тип панели",
 ]
 
 
 def _record_to_row(record):
-    """
-    Преобразовать словарь лида в плоский список значений для строки
-    таблицы. Порядок и количество значений всегда строго соответствуют
-    SHEET_COLUMNS — пустые/неприменимые для данного lead_type поля
-    записываются как "" и никогда не сдвигают остальные значения.
-    Отображаемые значения — на русском (см. docstring выше).
-    """
-    lead_type = record.get("lead_type", "construction")
+    """Преобразовать словарь лида в плоский список значений для строки таблицы."""
     return [
         record.get("lead_id", ""),
         record.get("created_at", ""),
@@ -101,31 +65,29 @@ def _record_to_row(record):
         record.get("utm_campaign") or "",
         record.get("utm_content") or "",
         record.get("utm_term") or "",
-        record.get("region") or "",
-        record.get("city") or "",
+        record.get("region", ""),
+        record.get("city", ""),
         record.get("segment", ""),
-        get_label(OBJECT_LABELS, record.get("object"), ""),
+        record.get("object", ""),
         record.get("area", ""),
-        record.get("length") or "",
-        record.get("width") or "",
-        record.get("height") or "",
-        get_label(INSULATION_LABELS, record.get("insulation"), ""),
-        get_label(THICKNESS_LABELS, record.get("thickness"), ""),
-        get_label(INSTALLATION_LABELS, record.get("installation"), ""),
-        get_label(DEADLINE_LABELS, record.get("deadline"), ""),
-        get_label(PROJECT_LABELS, record.get("project"), ""),
-        get_label(BUDGET_LABELS, record.get("budget"), ""),
+        record.get("length", ""),
+        record.get("width", ""),
+        record.get("height", ""),
+        record.get("insulation", ""),
+        record.get("thickness", ""),
+        record.get("installation", ""),
+        record.get("deadline", ""),
+        record.get("project", ""),
+        record.get("budget", ""),
         record.get("name", ""),
         record.get("phone", ""),
-        get_label(CLIENT_TYPE_LABELS, record.get("client_type"), ""),
-        record.get("company_name") or "",
+        record.get("client_type", ""),
+        record.get("company_name", ""),
         record.get("price_min", ""),
         record.get("price_max", ""),
         record.get("status", ""),
         "Да" if record.get("consent_personal_data") else "Нет",
         "Да" if record.get("consent_share_with_suppliers") else "Нет",
-        get_label(LEAD_TYPE_LABELS_SHEETS, lead_type, ""),
-        get_label(PANEL_TYPE_LABELS, record.get("panel_type"), ""),
     ]
 
 
@@ -142,23 +104,6 @@ def _append_local_fallback(record):
         return True
     except OSError:
         return False
-
-
-def _ensure_headers(worksheet):
-    """
-    Если лист пуст (в первой строке нет данных), один раз записать
-    заголовки из SHEET_COLUMNS перед первой записью лида. Если в первой
-    строке уже что-то есть (заголовки или чьи-то данные) — ничего не
-    делает и не трогает существующее содержимое листа.
-    """
-    try:
-        first_row = worksheet.row_values(1)
-    except Exception:
-        # Не удалось прочитать первую строку — не блокируем запись
-        # лида, просто пропускаем попытку добавить заголовки.
-        return
-    if not first_row:
-        worksheet.append_row(SHEET_COLUMNS, value_input_option="RAW")
 
 
 def append_lead(record):
@@ -187,12 +132,7 @@ def append_lead(record):
         credentials = Credentials.from_service_account_info(info, scopes=scopes)
         client = gspread.authorize(credentials)
         worksheet = client.open_by_key(spreadsheet_id).worksheet(SHEET_NAME)
-        _ensure_headers(worksheet)
-        # value_input_option="RAW": Google Sheets не пытается сама
-        # распознавать/переформатировать значения (даты, телефоны,
-        # числа-как-текст и т.п.) — данные попадают в ячейки как есть,
-        # без непредсказуемого авто-форматирования между заявками.
-        worksheet.append_row(_record_to_row(record), value_input_option="RAW")
+        worksheet.append_row(_record_to_row(record), value_input_option="USER_ENTERED")
         return {"sheets_ok": True, "fallback_used": False, "reason": None}
     except Exception:
         # Никогда не поднимаем исключение выше и не логируем

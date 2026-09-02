@@ -19,42 +19,88 @@ PROMPT 8 — реализация:
     - текст токена никогда не логируется и не попадает в исключения,
       которые могли бы всплыть наружу.
 
-Этап 2 (два коммерческих сценария — construction / panels):
-    build_lead_notification_text() теперь выбирает шаблон по
-    record["lead_type"]: для "construction" — прежний шаблон §51 с
-    добавленной строкой "Тип заявки" (см. уточнение к ТЗ, §16), для
-    "panels" — отдельный шаблон под сэндвич-панели как материал.
-    Общие человекочитаемые подписи вынесены в services/display_labels
-    (используются и здесь, и в services/google_sheets), чтобы не
-    дублировать один и тот же словарь в двух местах.
+Шаблон уведомления (Master ТЗ §51) воспроизведён максимально точно:
+поля и их порядок соответствуют примеру из ТЗ. Метки для отображения
+внутренних значений калькулятора (например insulation="pir" -> "PIR")
+определены здесь же — они не меняют и не дублируют сам калькулятор
+или Price Engine, а только форматируют уже готовую запись лида для
+человекочитаемого сообщения.
 
 ВАЖНО: реальная отправка в Telegram требует пользовательских
-TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID. Логика отправки протестирована
-через мок HTTP-слоя (см. отчёты по этапам).
+TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID и не была выполнена в этой
+песочнице — сеть отключена, а .env не содержит реальных значений.
+Логика отправки протестирована через мок HTTP-слоя (см. отчёт).
 """
 
 import json
-import logging
 import os
 import urllib.error
 import urllib.request
 
-from services.display_labels import (
-    DEADLINE_LABELS,
-    INSTALLATION_LABELS,
-    INSULATION_LABELS,
-    LEAD_TYPE_LABELS_TELEGRAM,
-    OBJECT_LABELS,
-    PANEL_TYPE_LABELS,
-    PROJECT_LABELS,
-    THICKNESS_LABELS,
-)
-from services.lead_calculator import BUDGET_LABELS, CLIENT_TYPE_LABELS
-
-logger = logging.getLogger(__name__)
-
 TELEGRAM_API_URL_TEMPLATE = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_TIMEOUT_SECONDS = 5
+
+# Отображаемые подписи для значений калькулятора (только для текста
+# уведомления). Сами значения ("garage", "pir", "within_month" и т.д.)
+# заданы в static/js/calculator.js и не меняются — здесь только их
+# человекочитаемое представление для менеджера.
+
+OBJECT_LABELS = {
+    "garage": "Гараж",
+    "workshop": "Мастерская",
+    "sto": "СТО",
+    "warehouse": "Склад",
+    "hangar": "Ангар",
+    "production": "Производство",
+    "other": "Другое",
+}
+
+INSULATION_LABELS = {
+    "mineral_wool": "Минвата",
+    "pir": "PIR",
+    "pur": "PUR",
+    "unknown": "Не знаю",
+}
+
+THICKNESS_LABELS = {
+    "50": "50 мм",
+    "80": "80 мм",
+    "100": "100 мм",
+    "120": "120 мм",
+    "150": "150 мм",
+    "200": "200 мм",
+    "unknown": "Не знаю",
+}
+
+INSTALLATION_LABELS = {
+    "yes": "Да",
+    "no": "Нет",
+    "unknown": "Пока не знаю",
+}
+
+DEADLINE_LABELS = {
+    "asap": "Как можно скорее",
+    "within_month": "В течение месяца",
+    "1_3_months": "1-3 месяца",
+    "more_3_months": "Более 3 месяцев",
+    "researching": "Пока изучаю цены",
+}
+
+PROJECT_LABELS = {
+    "yes": "Да",
+    "no": "Нет",
+    "in_progress": "В разработке",
+}
+
+BUDGET_LABELS = {
+    "under_500k": "До 500 тыс. ₽",
+    "500k_1m": "500 тыс.-1 млн ₽",
+    "1m_3m": "1-3 млн ₽",
+    "3m_5m": "3-5 млн ₽",
+    "over_5m": "Более 5 млн ₽",
+    "unknown": "Не знаю",
+}
+
 
 def determine_temperature(deadline):
     """
@@ -93,10 +139,10 @@ def _format_size_line(record):
     return "—"
 
 
-def _build_construction_notification_text(record):
+def build_lead_notification_text(record):
     """
-    Шаблон уведомления для строительства (Master ТЗ §51, дополнен
-    строкой "Тип заявки" и "Тип клиента" по уточнению — Этап 2, §16/§23).
+    Собрать текст уведомления по шаблону Master ТЗ §51 из готовой
+    записи лида (см. services/lead_calculator.build_lead_record).
     """
     segment = (record.get("segment") or "—").upper()
     object_label = OBJECT_LABELS.get(record.get("object"), record.get("object") or "—")
@@ -105,7 +151,6 @@ def _build_construction_notification_text(record):
     installation_label = INSTALLATION_LABELS.get(record.get("installation"), record.get("installation") or "—")
     deadline_label = DEADLINE_LABELS.get(record.get("deadline"), record.get("deadline") or "—")
     project_label = PROJECT_LABELS.get(record.get("project"), record.get("project") or "—")
-    client_type_label = CLIENT_TYPE_LABELS.get(record.get("client_type"), record.get("client_type") or "—")
 
     budget_value = record.get("budget")
     budget_label = BUDGET_LABELS.get(budget_value, "Не указан") if budget_value else "Не указан"
@@ -120,8 +165,6 @@ def _build_construction_notification_text(record):
 
     lines = [
         "🔥  НОВЫЙ ЛИД #{}".format(record.get("lead_id") or "—"),
-        "",
-        "Тип заявки: {}".format(LEAD_TYPE_LABELS_TELEGRAM.get("construction")),
         "",
         "Сегмент: {}".format(segment),
         "Объект: {}".format(object_label),
@@ -142,97 +185,10 @@ def _build_construction_notification_text(record):
         "",
         "Клиент: {}".format(record.get("name") or "—"),
         "Телефон: {}".format(record.get("phone") or "—"),
-        "Тип клиента: {}".format(client_type_label),
         "",
         "Температура: {}".format(temperature),
     ]
     return "\n".join(lines)
-
-
-def _build_panel_notification_text(record):
-    """
-    Шаблон уведомления для сэндвич-панелей как материала (Этап 2, §24).
-
-    Поля "Монтаж", "Срок", "Проект", "Регион" в этом сценарии
-    калькулятором не собираются (см. services/lead_calculator) —
-    соответствующие строки в шаблон не включаются, чтобы не показывать
-    менеджеру пустые/неприменимые поля.
-    """
-    panel_type_label = PANEL_TYPE_LABELS.get(record.get("panel_type"), record.get("panel_type") or "—")
-    insulation_label = INSULATION_LABELS.get(record.get("insulation"), record.get("insulation") or "—")
-    thickness_label = THICKNESS_LABELS.get(record.get("thickness"), record.get("thickness") or "—")
-    client_type_label = CLIENT_TYPE_LABELS.get(record.get("client_type"), record.get("client_type") or "—")
-
-    area = _fmt_num(record.get("area")) or "—"
-    price_line = "{} – {}".format(
-        record.get("price_min_formatted") or "—",
-        record.get("price_max_formatted") or "—",
-    )
-    per_m2_line = "{} – {}".format(
-        record.get("price_per_m2_min_formatted") or "—",
-        record.get("price_per_m2_max_formatted") or "—",
-    )
-
-    lines = [
-        "🔥  НОВЫЙ ЛИД #{}".format(record.get("lead_id") or "—"),
-        "",
-        "Тип заявки: {}".format(LEAD_TYPE_LABELS_TELEGRAM.get("panels")),
-        "",
-        "Тип панели: {}".format(panel_type_label),
-        "Площадь: {} м²".format(area),
-        "Утеплитель: {}".format(insulation_label),
-        "Толщина: {}".format(thickness_label),
-    ]
-    if record.get("city"):
-        lines.append("Город: {}".format(record.get("city")))
-    lines += [
-        "",
-        "Предварительный расчет:",
-        price_line,
-        "Ориентировочно: {}".format(per_m2_line),
-        "",
-        "Клиент: {}".format(record.get("name") or "—"),
-        "Телефон: {}".format(record.get("phone") or "—"),
-        "Тип клиента: {}".format(client_type_label),
-    ]
-    return "\n".join(lines)
-
-
-def build_lead_notification_text(record):
-    """
-    Собрать текст уведомления из готовой записи лида (см.
-    services/lead_calculator.build_lead_record). Шаблон выбирается по
-    record["lead_type"]: "panels" -> сэндвич-панели, иначе (в т.ч. для
-    старых вызовов без lead_type) -> строительство (Master ТЗ §51).
-    """
-    if record.get("lead_type") == "panels":
-        return _build_panel_notification_text(record)
-    return _build_construction_notification_text(record)
-
-
-def _safe_error_description(error):
-    """
-    Безопасно извлечь описание ошибки из ответа Telegram API для
-    логов. Тело ответа Telegram (например: "Bad Request: chat not
-    found", "Forbidden: bot was blocked by the user") никогда не
-    содержит наш токен — токен есть только в URL запроса, который
-    здесь не читается и не логируется. Результат обрезается до
-    разумной длины.
-    """
-    try:
-        raw = error.read()
-    except Exception:
-        return "(тело ответа недоступно)"
-    if not raw:
-        return "(пустой ответ)"
-    try:
-        payload = json.loads(raw.decode("utf-8", errors="replace"))
-        description = payload.get("description")
-        if description:
-            return str(description)[:200]
-    except Exception:
-        pass
-    return raw.decode("utf-8", errors="replace")[:200]
 
 
 def send_lead_notification(record):
@@ -243,8 +199,7 @@ def send_lead_notification(record):
     выбрасывает исключение наружу — ошибка или недоступность Telegram
     не должна ронять создание лида и не должна возвращать пользователю
     ошибку API. Токен никогда не логируется и не попадает в текст
-    исключения, которое могло бы куда-то всплыть — в логи попадает
-    только HTTP-статус и безопасное описание ошибки от Telegram.
+    исключения, которое могло бы куда-то всплыть.
     """
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -266,26 +221,8 @@ def send_lead_notification(record):
             status = getattr(response, "status", None) or response.getcode()
             if 200 <= status < 300:
                 return {"sent": True, "reason": None}
-            logger.warning("Telegram sendMessage: неожиданный статус %s без исключения.", status)
             return {"sent": False, "reason": "http_error_{}".format(status)}
-    except urllib.error.HTTPError as error:
-        description = _safe_error_description(error)
-        logger.warning(
-            "Telegram sendMessage не доставлено (lead_id=%s): HTTP %s — %s",
-            record.get("lead_id"), error.code, description,
-        )
-        return {"sent": False, "reason": "http_error_{}".format(error.code)}
-    except urllib.error.URLError as error:
-        logger.warning(
-            "Telegram sendMessage: сетевая ошибка (lead_id=%s) — %s",
-            record.get("lead_id"), getattr(error, "reason", error),
-        )
-        return {"sent": False, "reason": "network_error"}
     except Exception:
         # Никогда не поднимаем исключение выше и не логируем токен
         # или тело ошибки — только факт неудачи.
-        logger.warning(
-            "Telegram sendMessage: непредвиденная ошибка при отправке (lead_id=%s).",
-            record.get("lead_id"),
-        )
         return {"sent": False, "reason": "request_failed"}

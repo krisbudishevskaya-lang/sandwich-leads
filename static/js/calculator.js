@@ -1,26 +1,14 @@
-// ПрайсМетр — calculator.js
+// Sandwich Leads MVP — calculator.js
 //
-// Многошаговый калькулятор с двумя независимыми коммерческими
-// сценариями (Этап 2-3 доработки):
-//   activeFlow === "construction" — расчёт строительства объекта
-//     (PROMPT 3-8, логика и Price Engine НЕ изменены);
-//   activeFlow === "panels"       — расчёт сэндвич-панелей как
-//     материала (новый сценарий, отдельный Price Engine).
-//
-// Оба сценария используют один и тот же движок шагов/навигации/
-// контактной формы, чтобы не дублировать архитектуру. Выбор сценария
-// происходит либо через две карточки в Hero, либо через кнопки-выбор
-// прямо в калькуляторе, либо автоматически по preset_flow с рекламных
-// входов (/garazh, /sto, /sklad, /angar, /bystrovozvodimye-zdaniya,
-// /sandwich-paneli).
-//
+// Многошаговый калькулятор (PROMPT 3).
 // Полностью работает на клиенте, без перезагрузки страницы.
+// Price Engine НЕ реализован — стоимость на этом этапе placeholder.
 
 (function () {
     "use strict";
 
     /* ------------------------------------------------------------------
-       Справочники вариантов ответа — СТРОИТЕЛЬСТВО (не изменены)
+       Справочники вариантов ответа
        ------------------------------------------------------------------ */
 
     var OBJECT_OPTIONS = [
@@ -71,23 +59,7 @@
     ];
 
     /* ------------------------------------------------------------------
-       Справочники вариантов ответа — СЭНДВИЧ-ПАНЕЛИ (Этап 2-3)
-       ------------------------------------------------------------------ */
-
-    var PANEL_TYPE_OPTIONS = [
-        { value: "wall", label: "Стеновые панели" },
-        { value: "roof", label: "Кровельные панели" },
-        { value: "wall_and_roof", label: "Стеновые + кровельные" }
-    ];
-
-    var PANEL_INSULATION_OPTIONS = [
-        { value: "mineral_wool", label: "Минеральная вата" },
-        { value: "pir", label: "PIR" },
-        { value: "unknown", label: "Не знаю" }
-    ];
-
-    /* ------------------------------------------------------------------
-       Конфигурация шагов
+       Конфигурация шагов (8 вопросов + 1 финальный экран результата)
        ------------------------------------------------------------------ */
 
     var QUESTION_STEPS = [
@@ -145,40 +117,6 @@
     var RESULT_STEP = {
         key: "result",
         type: "result",
-        flow: "construction",
-        question: "Ваши параметры собраны"
-    };
-
-    var PANEL_QUESTION_STEPS = [
-        {
-            key: "panel_type",
-            type: "cards",
-            question: "Что вам нужно?",
-            options: PANEL_TYPE_OPTIONS
-        },
-        {
-            key: "insulation",
-            type: "options",
-            question: "Какой утеплитель?",
-            options: PANEL_INSULATION_OPTIONS
-        },
-        {
-            key: "thickness",
-            type: "options",
-            question: "Какая нужна толщина?",
-            options: THICKNESS_OPTIONS
-        },
-        {
-            key: "area",
-            type: "panel_area",
-            question: "Какой примерный объём (площадь)?"
-        }
-    ];
-
-    var PANEL_RESULT_STEP = {
-        key: "result",
-        type: "result",
-        flow: "panels",
         question: "Ваши параметры собраны"
     };
 
@@ -206,12 +144,11 @@
         { value: "unknown", label: "Не знаю" }
     ];
 
-    /* ------------------------------------------------------------------
-       Состояние
-       ------------------------------------------------------------------ */
+    var ALL_STEPS = QUESTION_STEPS.concat([RESULT_STEP, CONTACT_STEP]);
 
-    // activeFlow: null (сценарий ещё не выбран) | "construction" | "panels"
-    var activeFlow = null;
+    /* ------------------------------------------------------------------
+       Состояние калькулятора
+       ------------------------------------------------------------------ */
 
     var state = {
         object: null,
@@ -229,14 +166,8 @@
         project: null
     };
 
-    var panelState = {
-        panel_type: null,
-        insulation: null,
-        thickness: null,
-        area: null
-    };
-
-    // Состояние контактной формы — общее для обоих сценариев.
+    // Состояние контактной формы (PROMPT 6) хранится отдельно от
+    // состояния калькулятора, т.к. относится к другому этапу воронки.
     var contactState = {
         name: null,
         phone: null,
@@ -249,14 +180,15 @@
 
     // Последний успешный результат Price Engine — переиспользуется при
     // отправке лида и для краткой сводки на экране контактной формы,
-    // без повторного запроса к соответствующему price-estimate.
+    // без повторного запроса к /api/price-estimate.
     var lastPriceResult = null;
     var leadSubmitted = false;
-    var lastSubmittedLeadId = null;
-    var lastSubmittedName = null;
 
     // UTM-метки (PROMPT 7) — считываются один раз из URL при загрузке
-    // страницы и сохраняются в памяти на протяжении всего сценария.
+    // страницы и сохраняются в памяти на протяжении всего сценария
+    // калькулятора (весь путь калькулятор → результат → контакты
+    // происходит без перезагрузки страницы, поэтому достаточно
+    // прочитать URL один раз при инициализации).
     var utmParams = {
         utm_source: null,
         utm_medium: null,
@@ -266,26 +198,6 @@
     };
 
     var currentIndex = 0;
-
-    /* ------------------------------------------------------------------
-       Помощники активного сценария
-       ------------------------------------------------------------------ */
-
-    function getActiveState() {
-        return activeFlow === "panels" ? panelState : state;
-    }
-
-    function getActiveQuestionSteps() {
-        return activeFlow === "panels" ? PANEL_QUESTION_STEPS : QUESTION_STEPS;
-    }
-
-    function getActiveResultStep() {
-        return activeFlow === "panels" ? PANEL_RESULT_STEP : RESULT_STEP;
-    }
-
-    function getActiveAllSteps() {
-        return getActiveQuestionSteps().concat([getActiveResultStep(), CONTACT_STEP]);
-    }
 
     /* ------------------------------------------------------------------
        Утилиты
@@ -418,80 +330,55 @@
             return html;
         }
 
-        if (step.type === "panel_area") {
-            html += '<div class="calc-field">' +
-                '<label for="calc-panel-area">Примерная площадь, м²</label>' +
-                '<input type="number" id="calc-panel-area" inputmode="decimal" step="0.1" min="0">' +
-                '<p class="calc-field-error" id="calc-error-panel-area"></p>' +
-                "</div>" +
-                '<p class="calc-step__hint">Не знаете точную площадь? Укажите примерное значение — расчёт всё равно будет ориентировочным.</p>';
-            return html;
-        }
-
         if (step.type === "result") {
-            var isPanels = step.flow === "panels";
-            var introText = isPanels
-                ? "Предварительная оценка стоимости сэндвич-панелей как материала. Это не оферта и не точная коммерческая цена."
-                : "Предварительная оценка рыночной стоимости объекта из сэндвич-панелей. Это не строительная смета.";
-            var ctaTitle = isPanels ? "Хотите получить расчёт от поставщиков?" : "Хотите сравнить реальные предложения?";
-            var ctaText = isPanels
-                ? "Передадим заявку компаниям, которые работают с поставкой сэндвич-панелей."
-                : "Подберем производителей, которые работают с вашим типом объекта и параметрами.";
-            var ctaButtonText = isPanels ? "Получить расчёт от поставщиков" : "Получить предложения от производителей";
-
             html +=
-                '<p class="calc-result__intro">' + escapeHtml(introText) + "</p>" +
+                '<p class="calc-result__intro">' +
+                    "Предварительная оценка рыночной стоимости объекта из сэндвич-панелей. " +
+                    "Это не строительная смета." +
+                "</p>" +
                 '<dl class="calc-summary" id="calc-summary"></dl>' +
                 '<div class="calc-price" id="calc-price" aria-live="polite">' +
                     '<p class="calc-price__label">Предварительная стоимость</p>' +
                     '<div class="calc-price__body" id="calc-price-body">' +
                         '<p class="calc-price__loading">Считаем предварительную стоимость…</p>' +
                     "</div>" +
-                "</div>";
-
-            if (isPanels) {
-                html += '<p class="calc-step__hint">' +
-                    "Точную стоимость и условия поставки подтвердит поставщик." +
-                "</p>";
-            } else {
-                html +=
-                    '<details class="calc-scope">' +
-                        "<summary>Что входит в расчёт и что нет</summary>" +
-                        '<div class="calc-scope__columns">' +
-                            '<div class="calc-scope__col">' +
-                                '<p class="calc-scope__heading">В расчёт ориентировочно входят:</p>' +
-                                "<ul>" +
-                                    "<li>металлокаркас</li>" +
-                                    "<li>стеновые панели</li>" +
-                                    "<li>кровельные панели</li>" +
-                                    "<li>базовые комплектующие</li>" +
-                                    "<li>стандартный монтаж</li>" +
-                                "</ul>" +
-                            "</div>" +
-                            '<div class="calc-scope__col">' +
-                                '<p class="calc-scope__heading">Не входят:</p>' +
-                                "<ul>" +
-                                    "<li>фундамент</li>" +
-                                    "<li>инженерные коммуникации</li>" +
-                                    "<li>оборудование</li>" +
-                                    "<li>внутренняя отделка</li>" +
-                                    "<li>нестандартные ворота</li>" +
-                                    "<li>кран-балки</li>" +
-                                    "<li>холодильное оборудование</li>" +
-                                    "<li>благоустройство</li>" +
-                                    "<li>нестандартные работы</li>" +
-                                "</ul>" +
-                            "</div>" +
+                "</div>" +
+                '<details class="calc-scope">' +
+                    "<summary>Что входит в расчёт и что нет</summary>" +
+                    '<div class="calc-scope__columns">' +
+                        '<div class="calc-scope__col">' +
+                            '<p class="calc-scope__heading">В расчёт ориентировочно входят:</p>' +
+                            "<ul>" +
+                                "<li>металлокаркас</li>" +
+                                "<li>стеновые панели</li>" +
+                                "<li>кровельные панели</li>" +
+                                "<li>базовые комплектующие</li>" +
+                                "<li>стандартный монтаж</li>" +
+                            "</ul>" +
                         "</div>" +
-                    "</details>";
-            }
-
-            html +=
+                        '<div class="calc-scope__col">' +
+                            '<p class="calc-scope__heading">Не входят:</p>' +
+                            "<ul>" +
+                                "<li>фундамент</li>" +
+                                "<li>инженерные коммуникации</li>" +
+                                "<li>оборудование</li>" +
+                                "<li>внутренняя отделка</li>" +
+                                "<li>нестандартные ворота</li>" +
+                                "<li>кран-балки</li>" +
+                                "<li>холодильное оборудование</li>" +
+                                "<li>благоустройство</li>" +
+                                "<li>нестандартные работы</li>" +
+                            "</ul>" +
+                        "</div>" +
+                    "</div>" +
+                "</details>" +
                 '<div class="calc-next-step">' +
-                    '<h3 class="calc-next-step__title">' + escapeHtml(ctaTitle) + "</h3>" +
-                    '<p class="calc-next-step__text">' + escapeHtml(ctaText) + "</p>" +
+                    '<h3 class="calc-next-step__title">Хотите сравнить реальные предложения?</h3>' +
+                    '<p class="calc-next-step__text">' +
+                        "Подберем производителей, которые работают с вашим типом объекта и параметрами." +
+                    "</p>" +
                     '<button type="button" class="button-primary calc-next-step__cta" id="calc-get-offers">' +
-                        escapeHtml(ctaButtonText) +
+                        "Получить предложения от производителей" +
                     "</button>" +
                 "</div>";
             return html;
@@ -530,11 +417,11 @@
                     "</div>" +
                     '<label class="calc-checkbox calc-checkbox--consent">' +
                         '<input type="checkbox" id="calc-consent-personal">' +
-                        '<span>Я ознакомлен(а) и согласен(на) на <a href="/consent" target="_blank" rel="noopener">обработку персональных данных</a>.</span>' +
+                        '<span>Я даю согласие на <a href="/privacy" target="_blank" rel="noopener">обработку персональных данных</a> в соответствии с <a href="/consent" target="_blank" rel="noopener">условиями согласия</a>.</span>' +
                     "</label>" +
                     '<label class="calc-checkbox calc-checkbox--consent">' +
                         '<input type="checkbox" id="calc-consent-share">' +
-                        '<span>Я согласен(на) на предоставление моих персональных данных потенциальным производителям, поставщикам и подрядчикам для обработки моей заявки и подготовки предложений (<a href="/consent-transfer" target="_blank" rel="noopener">подробнее</a>).</span>' +
+                        '<span>Я согласен на передачу данных производителям и подрядчикам для связи со мной и подготовки предложения (<a href="/terms" target="_blank" rel="noopener">пользовательское соглашение</a>).</span>' +
                     "</label>" +
                     '<p class="calculator__error" id="calc-contact-error" role="alert" aria-live="polite"></p>' +
                     '<button type="button" class="button-primary calc-contact__submit" id="calc-contact-submit">Отправить заявку</button>' +
@@ -546,12 +433,11 @@
         return html;
     }
 
-    function buildStepsForFlow() {
+    function buildSteps() {
         var container = document.getElementById("calc-steps");
         if (!container) return;
-        container.innerHTML = "";
 
-        getActiveAllSteps().forEach(function (step, index) {
+        ALL_STEPS.forEach(function (step, index) {
             var el = document.createElement("div");
             el.className = "calc-step";
             el.id = "calc-step-" + step.key;
@@ -642,24 +528,12 @@
         return valid;
     }
 
-    function validatePanelAreaStep() {
-        var input = document.getElementById("calc-panel-area");
-        var value = input ? parsePositiveNumber(input.value) : null;
-        if (value === null) {
-            setFieldError("panel-area", "Введите примерную площадь — положительное число.");
-            return false;
-        }
-        panelState.area = value;
-        return true;
-    }
-
     function validateCurrentStep() {
-        var step = getActiveAllSteps()[currentIndex];
-        var activeState = getActiveState();
+        var step = ALL_STEPS[currentIndex];
         clearStepErrors();
 
         if (step.type === "cards" || step.type === "options") {
-            if (!activeState[step.key]) {
+            if (!state[step.key]) {
                 showGeneralError("Пожалуйста, выберите один из вариантов.");
                 return false;
             }
@@ -673,16 +547,12 @@
                 setFieldError(step.key, "Пожалуйста, заполните это поле.");
                 return false;
             }
-            activeState[step.key] = value;
+            state[step.key] = value;
             return true;
         }
 
         if (step.type === "size") {
             return validateSizeStep();
-        }
-
-        if (step.type === "panel_area") {
-            return validatePanelAreaStep();
         }
 
         return true;
@@ -693,7 +563,7 @@
        ------------------------------------------------------------------ */
 
     function updateProgress() {
-        var totalQuestions = getActiveQuestionSteps().length;
+        var totalQuestions = QUESTION_STEPS.length;
         var fill = document.getElementById("calc-progress-fill");
         var label = document.getElementById("calc-progress-label");
         if (!fill || !label) return;
@@ -716,22 +586,23 @@
         var nextBtn = document.getElementById("calc-next");
         if (!backBtn || !nextBtn) return;
 
-        var totalQuestions = getActiveQuestionSteps().length;
-
         backBtn.hidden = currentIndex === 0;
 
-        if (currentIndex >= totalQuestions) {
+        if (currentIndex >= QUESTION_STEPS.length) {
             // экран результата и контактная форма используют
             // собственные кнопки, а не общую кнопку "Далее".
             nextBtn.hidden = true;
         } else {
             nextBtn.hidden = false;
             nextBtn.textContent =
-                currentIndex === totalQuestions - 1 ? "Показать результат" : "Далее";
+                currentIndex === QUESTION_STEPS.length - 1 ? "Показать результат" : "Далее";
         }
     }
 
-    function buildConstructionSummaryRows() {
+    function renderSummary() {
+        var summary = document.getElementById("calc-summary");
+        if (!summary) return;
+
         var rows = [];
         rows.push(["Объект", getOptionLabel(OBJECT_OPTIONS, state.object)]);
 
@@ -753,23 +624,6 @@
         rows.push(["Город", state.city || "—"]);
         rows.push(["Срок", getOptionLabel(DEADLINE_OPTIONS, state.deadline)]);
         rows.push(["Проект", getOptionLabel(PROJECT_OPTIONS, state.project)]);
-        return rows;
-    }
-
-    function buildPanelSummaryRows() {
-        return [
-            ["Тип панели", getOptionLabel(PANEL_TYPE_OPTIONS, panelState.panel_type)],
-            ["Площадь", formatNumber(panelState.area) + " м²"],
-            ["Утеплитель", getOptionLabel(PANEL_INSULATION_OPTIONS, panelState.insulation)],
-            ["Толщина", getOptionLabel(THICKNESS_OPTIONS, panelState.thickness)]
-        ];
-    }
-
-    function renderSummary() {
-        var summary = document.getElementById("calc-summary");
-        if (!summary) return;
-
-        var rows = activeFlow === "panels" ? buildPanelSummaryRows() : buildConstructionSummaryRows();
 
         summary.innerHTML = rows
             .map(function (row) {
@@ -794,15 +648,6 @@
             thickness: state.thickness,
             installation: state.installation,
             city: state.city
-        };
-    }
-
-    function buildPanelPriceEnginePayload() {
-        return {
-            panel_type: panelState.panel_type,
-            area: panelState.area,
-            insulation: panelState.insulation,
-            thickness: panelState.thickness
         };
     }
 
@@ -849,11 +694,9 @@
     function fetchPriceEstimate() {
         renderPriceLoading();
 
-        var isPanels = activeFlow === "panels";
-        var endpoint = isPanels ? "/api/panel-price-estimate" : "/api/price-estimate";
-        var payload = isPanels ? buildPanelPriceEnginePayload() : buildPriceEnginePayload();
+        var payload = buildPriceEnginePayload();
 
-        fetch(endpoint, {
+        fetch("/api/price-estimate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -879,8 +722,11 @@
     }
 
     /* ------------------------------------------------------------------
-       Контактная форма и отправка лида
+       Контактная форма и отправка лида (PROMPT 6)
        ------------------------------------------------------------------ */
+
+    var lastSubmittedLeadId = null;
+    var lastSubmittedName = null;
 
     function updateCompanyFieldVisibility() {
         var field = document.getElementById("calc-contact-company-field");
@@ -890,42 +736,30 @@
 
     function getEntrySourceLabel() {
         var section = document.getElementById("calculator");
-        var presetObject = section ? section.getAttribute("data-preset-object") : "";
-        var presetFlow = section ? section.getAttribute("data-preset-flow") : "";
-        var objectLabels = {
+        var preset = section ? section.getAttribute("data-preset-object") : "";
+        var labels = {
             garage: "Гараж (рекламный вход)",
             sto: "СТО (рекламный вход)",
-            warehouse: "Склад (рекламный вход)",
-            hangar: "Ангар (рекламный вход)"
+            warehouse: "Склад (рекламный вход)"
         };
-        if (presetObject && objectLabels[presetObject]) return objectLabels[presetObject];
-        if (presetFlow === "panels") return "Сэндвич-панели (рекламный вход)";
-        if (presetFlow === "construction") return "Быстровозводимые здания (рекламный вход)";
-        return "Прямой заход";
+        return labels[preset] || "Прямой заход";
     }
 
     function renderContactRecap() {
         var recap = document.getElementById("calc-contact-recap");
         if (!recap) return;
 
+        var objectLabel = getOptionLabel(OBJECT_OPTIONS, state.object);
+        var areaText = state.area !== null ? formatNumber(state.area) + " м²" : "—";
         var priceText = lastPriceResult
             ? lastPriceResult.price_min_formatted + " – " + lastPriceResult.price_max_formatted
             : "предварительная стоимость рассчитывается на предыдущем шаге";
 
-        var summaryLine;
-        if (activeFlow === "panels") {
-            var panelTypeLabel = getOptionLabel(PANEL_TYPE_OPTIONS, panelState.panel_type);
-            var panelAreaText = panelState.area !== null ? formatNumber(panelState.area) + " м²" : "—";
-            summaryLine = panelTypeLabel + " · " + panelAreaText + " · " + priceText;
-        } else {
-            var objectLabel = getOptionLabel(OBJECT_OPTIONS, state.object);
-            var areaText = state.area !== null ? formatNumber(state.area) + " м²" : "—";
-            summaryLine = objectLabel + " · " + areaText + " · " + priceText;
-        }
-
         recap.innerHTML =
             '<p class="calc-contact-recap__title">Ваш расчёт</p>' +
-            '<p class="calc-contact-recap__text">' + escapeHtml(summaryLine) + "</p>";
+            '<p class="calc-contact-recap__text">' +
+                escapeHtml(objectLabel) + " · " + escapeHtml(areaText) + " · " + escapeHtml(priceText) +
+            "</p>";
     }
 
     function clearContactErrors() {
@@ -987,7 +821,7 @@
                     escapeHtml(leadId) + "</strong>.</p>" +
                 '<p class="calc-contact-success__text">' +
                     "Мы свяжемся с вами в ближайшее время, чтобы уточнить детали и подобрать " +
-                    "подходящие предложения от компаний." +
+                    "подходящие предложения от производителей." +
                 "</p>";
         }
     }
@@ -1017,8 +851,6 @@
             submitBtn.textContent = "Отправляем…";
         }
 
-        var isPanels = activeFlow === "panels";
-
         var payload = {
             contact: {
                 name: contactState.name,
@@ -1029,10 +861,9 @@
                 consent_personal_data: contactState.consentPersonalData === true,
                 consent_share_with_suppliers: contactState.consentShareWithSuppliers === true
             },
-            calculator: isPanels ? buildPanelPriceEnginePayload() : buildPriceEnginePayload(),
+            calculator: buildPriceEnginePayload(),
             source: getEntrySourceLabel(),
-            utm: utmParams,
-            lead_type: isPanels ? "panels" : "construction"
+            utm: utmParams
         };
 
         fetch("/api/leads", {
@@ -1077,8 +908,7 @@
     }
 
     function goToContactStep() {
-        var allSteps = getActiveAllSteps();
-        currentIndex = allSteps.length - 1;
+        currentIndex = ALL_STEPS.length - 1;
         showStep(currentIndex);
         renderContactRecap();
         if (leadSubmitted) {
@@ -1135,8 +965,7 @@
     }
 
     function showStep(index) {
-        var allSteps = getActiveAllSteps();
-        allSteps.forEach(function (step, i) {
+        ALL_STEPS.forEach(function (step, i) {
             var el = document.getElementById("calc-step-" + step.key);
             if (!el) return;
             if (i === index) {
@@ -1155,7 +984,7 @@
         updateProgress();
         updateNav();
 
-        if (allSteps[index].type === "result") {
+        if (ALL_STEPS[index].type === "result") {
             renderSummary();
             fetchPriceEstimate();
         }
@@ -1180,8 +1009,7 @@
         if (nextBtn) {
             nextBtn.addEventListener("click", function () {
                 if (!validateCurrentStep()) return;
-                var allSteps = getActiveAllSteps();
-                if (currentIndex < allSteps.length - 1) {
+                if (currentIndex < ALL_STEPS.length - 1) {
                     currentIndex += 1;
                     showStep(currentIndex);
                     scrollCalculatorIntoView();
@@ -1204,9 +1032,6 @@
         var container = document.getElementById("calc-steps");
         if (!container) return;
 
-        // Делегирование событий на постоянном контейнере — переживает
-        // пересоздание внутреннего содержимого при смене сценария
-        // (buildStepsForFlow полностью перестраивает #calc-steps).
         container.addEventListener("click", function (event) {
             var btn = event.target.closest(".calc-option, .calc-card");
             if (!btn) return;
@@ -1225,7 +1050,7 @@
                 }
             } else {
                 var key = stepEl.getAttribute("data-key");
-                getActiveState()[key] = value;
+                state[key] = value;
             }
 
             var siblings = scope.querySelectorAll(".calc-option, .calc-card");
@@ -1301,63 +1126,6 @@
     }
 
     /* ------------------------------------------------------------------
-       Выбор сценария (Этап 3)
-       ------------------------------------------------------------------ */
-
-    function startFlow(flow) {
-        activeFlow = flow;
-        currentIndex = 0;
-        leadSubmitted = false;
-        lastPriceResult = null;
-
-        var chooser = document.getElementById("calc-flow-chooser");
-        if (chooser) chooser.hidden = true;
-        var progress = document.getElementById("calc-progress");
-        if (progress) progress.hidden = false;
-        var nav = document.getElementById("calc-nav");
-        if (nav) nav.hidden = false;
-
-        buildStepsForFlow();
-
-        if (flow === "construction") {
-            wireSizeStep();
-            wireCityInput();
-            applyPresetObject();
-        }
-        wireContactStep();
-
-        showStep(0);
-    }
-
-    function wireFlowChoosers() {
-        var heroCtaPanels = document.getElementById("hero-cta-panels");
-        var heroCtaConstruction = document.getElementById("hero-cta-construction");
-        var calcChoosePanels = document.getElementById("calc-choose-panels");
-        var calcChooseConstruction = document.getElementById("calc-choose-construction");
-
-        function startAndScroll(flow) {
-            startFlow(flow);
-            var calcSection = document.getElementById("calculator");
-            if (calcSection) {
-                calcSection.scrollIntoView({ behavior: "smooth", block: "start" });
-            }
-        }
-
-        if (heroCtaPanels) {
-            heroCtaPanels.addEventListener("click", function () { startAndScroll("panels"); });
-        }
-        if (heroCtaConstruction) {
-            heroCtaConstruction.addEventListener("click", function () { startAndScroll("construction"); });
-        }
-        if (calcChoosePanels) {
-            calcChoosePanels.addEventListener("click", function () { startFlow("panels"); });
-        }
-        if (calcChooseConstruction) {
-            calcChooseConstruction.addEventListener("click", function () { startFlow("construction"); });
-        }
-    }
-
-    /* ------------------------------------------------------------------
        UTM-метки (PROMPT 7)
        ------------------------------------------------------------------ */
 
@@ -1384,17 +1152,14 @@
         if (!section) return;
 
         parseUtmParams();
+        buildSteps();
         wireNav();
         wireOptionSelection();
-        wireFlowChoosers();
-
-        var presetFlow = section.getAttribute("data-preset-flow");
-        if (presetFlow === "construction" || presetFlow === "panels") {
-            startFlow(presetFlow);
-        }
-        // Иначе остаётся видимым #calc-flow-chooser — ждём выбора
-        // сценария пользователем (через Hero-карточки или кнопки внутри
-        // калькулятора).
+        wireSizeStep();
+        wireCityInput();
+        wireContactStep();
+        applyPresetObject();
+        showStep(0);
     }
 
     if (document.readyState === "loading") {

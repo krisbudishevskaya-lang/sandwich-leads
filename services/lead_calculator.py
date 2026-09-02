@@ -212,86 +212,6 @@ def calculate_price_estimate(payload):
 
 
 # ==========================================================================
-# Этап 2 — Price Engine сэндвич-панелей (материал, без строительства).
-#
-# Формула по тому же принципу, что и у строительного Price Engine выше,
-# но со своими коэффициентами (заданы заказчиком как тестовая MVP-модель,
-# см. config/pricing.py). Строительный расчёт (calculate_price_estimate
-# выше) этой функцией никак не затрагивается.
-# ==========================================================================
-
-
-def calculate_panel_price_estimate(payload):
-    """
-    Рассчитать предварительную стоимость сэндвич-панелей как материала.
-
-    payload — словарь с ключами:
-        panel_type    — "wall" | "roof" | "wall_and_roof"
-        area          — площадь, м² (число)
-        insulation    — "mineral_wool" | "pir" | "unknown"
-        thickness     — "50".."200" | "unknown"
-
-    Формула: PANEL_BASE_PRICE_PER_M2 × коэфф. типа × коэфф. утеплителя ×
-    коэфф. толщины × коэфф. объёма = цена за м²; далее × площадь = итог;
-    диапазон ±10% вокруг итога (тот же принцип, что у строительства).
-    """
-    if not isinstance(payload, dict):
-        raise PriceEngineError("Некорректный формат данных.")
-
-    panel_type = payload.get("panel_type")
-    type_coefficient = pricing.get_panel_type_coefficient(panel_type)
-    if type_coefficient is None:
-        raise PriceEngineError("Неизвестный тип панели.")
-
-    area = _parse_positive_number(payload.get("area"), "площадь")
-
-    insulation = payload.get("insulation")
-    insulation_coefficient = pricing.get_panel_insulation_coefficient(insulation)
-    if insulation_coefficient is None:
-        raise PriceEngineError("Неизвестный тип утеплителя.")
-
-    thickness = payload.get("thickness")
-    thickness_coefficient = pricing.get_panel_thickness_coefficient(thickness)
-    if thickness_coefficient is None:
-        raise PriceEngineError("Неизвестная толщина панели.")
-
-    volume_coefficient = pricing.get_panel_volume_coefficient(area)
-    if volume_coefficient is None:
-        raise PriceEngineError("Не удалось определить коэффициент объёма.")
-
-    price_per_m2 = (
-        pricing.PANEL_BASE_PRICE_PER_M2
-        * type_coefficient
-        * insulation_coefficient
-        * thickness_coefficient
-        * volume_coefficient
-    )
-    total = price_per_m2 * area
-
-    total_min = total * pricing.RANGE_LOWER_MULTIPLIER
-    total_max = total * pricing.RANGE_UPPER_MULTIPLIER
-
-    if total_min < 0 or total_max < 0:
-        raise PriceEngineError("Не удалось рассчитать стоимость.")
-
-    per_m2_min = total_min / area
-    per_m2_max = total_max / area
-
-    return {
-        "ok": True,
-        "area": area,
-        "price_min": round(total_min),
-        "price_max": round(total_max),
-        "price_per_m2_min": round(per_m2_min),
-        "price_per_m2_max": round(per_m2_max),
-        "price_min_formatted": _format_total(total_min),
-        "price_max_formatted": _format_total(total_max),
-        "price_per_m2_min_formatted": _format_per_m2(per_m2_min),
-        "price_per_m2_max_formatted": _format_per_m2(per_m2_max),
-    }
-
-
-# ==========================================================================
 # PROMPT 6 — контактная форма и сбор квалифицированного лида
 # ==========================================================================
 
@@ -441,22 +361,17 @@ def _sanitize_utm(raw):
     return cleaned
 
 
-def build_lead_record(contact_payload, calculator_payload, entry_source=None, utm_payload=None, lead_type="construction"):
+def build_lead_record(contact_payload, calculator_payload, entry_source=None, utm_payload=None):
     """
     Провалидировать контактные данные и данные калькулятора на backend
     и собрать итоговую структуру лида.
 
-    lead_type — "construction" (по умолчанию, для обратной совместимости
-    со старыми вызовами) или "panels" (Этап 2). В зависимости от этого
-    выбирается соответствующий Price Engine — calculate_price_estimate
-    для строительства (формула НЕ меняется) или calculate_panel_price_estimate
-    для сэндвич-панелей как материала.
-
-    Стоимость НЕ принимается от frontend "на слово" — соответствующий
-    Price Engine вызывается здесь заново, на тех же параметрах
-    калькулятора, которые пользователь уже видел на экране результата.
-    Это гарантирует, что записанная стоимость всегда соответствует
-    единственному источнику истины и не может быть подделана на клиенте.
+    Стоимость НЕ принимается от frontend "на слово" — Price Engine
+    (calculate_price_estimate) вызывается здесь заново, на тех же
+    параметрах калькулятора, которые пользователь уже видел на экране
+    результата. Это гарантирует, что записанная стоимость всегда
+    соответствует единственному источнику истины и не может быть
+    подделана на клиенте.
 
     Выбрасывает LeadValidationError или PriceEngineError с понятным
     сообщением, если данные некорректны или отсутствуют.
@@ -465,8 +380,6 @@ def build_lead_record(contact_payload, calculator_payload, entry_source=None, ut
         raise LeadValidationError("Некорректные данные контактной формы.")
     if not isinstance(calculator_payload, dict):
         raise LeadValidationError("Отсутствуют данные калькулятора.")
-    if lead_type not in ("construction", "panels"):
-        raise LeadValidationError("Некорректный тип заявки.")
 
     name = _validate_name(contact_payload.get("name"))
     phone = _validate_phone(contact_payload.get("phone"))
@@ -482,13 +395,18 @@ def build_lead_record(contact_payload, calculator_payload, entry_source=None, ut
     if not consent_share_with_suppliers:
         raise LeadValidationError("Необходимо согласие на передачу данных производителям.")
 
+    # Единственный источник истины для стоимости — Price Engine.
+    # Одновременно валидирует все параметры калькулятора (объект,
+    # площадь, высоту, утеплитель, толщину, монтаж, город).
+    price = calculate_price_estimate(calculator_payload)
+
+    segment = determine_segment(price["area"])
     lead_id = generate_lead_id()
     created_at = datetime.now(timezone.utc).isoformat()
     utm = _sanitize_utm(utm_payload)
 
-    common_fields = {
+    return {
         "lead_id": lead_id,
-        "lead_type": lead_type,
         "created_at": created_at,
         "source": entry_source or "Прямой заход",
         "utm_source": utm["utm_source"],
@@ -496,53 +414,6 @@ def build_lead_record(contact_payload, calculator_payload, entry_source=None, ut
         "utm_campaign": utm["utm_campaign"],
         "utm_content": utm["utm_content"],
         "utm_term": utm["utm_term"],
-        "budget": budget,
-        "name": name,
-        "phone": phone,
-        "client_type": client_type,
-        "company_name": company_name,
-        "status": "Новый",
-        "consent_personal_data": True,
-        "consent_share_with_suppliers": True,
-        "consent_recorded_at": created_at,
-    }
-
-    if lead_type == "panels":
-        # Единственный источник истины для стоимости панелей — Price
-        # Engine панелей. Валидирует panel_type/площадь/утеплитель/толщину.
-        price = calculate_panel_price_estimate(calculator_payload)
-        segment = determine_segment(price["area"])
-
-        return {
-            **common_fields,
-            "region": None,
-            "city": calculator_payload.get("city"),
-            "segment": segment,
-            "object": None,
-            "area": price["area"],
-            "length": None,
-            "width": None,
-            "height": None,
-            "panel_type": calculator_payload.get("panel_type"),
-            "insulation": calculator_payload.get("insulation"),
-            "thickness": calculator_payload.get("thickness"),
-            "installation": None,
-            "deadline": None,
-            "project": None,
-            "price_min": price["price_min"],
-            "price_max": price["price_max"],
-            "price_min_formatted": price["price_min_formatted"],
-            "price_max_formatted": price["price_max_formatted"],
-            "price_per_m2_min_formatted": price["price_per_m2_min_formatted"],
-            "price_per_m2_max_formatted": price["price_per_m2_max_formatted"],
-        }
-
-    # lead_type == "construction" — существующая логика без изменений.
-    price = calculate_price_estimate(calculator_payload)
-    segment = determine_segment(price["area"])
-
-    return {
-        **common_fields,
         "region": price["region"],
         "city": calculator_payload.get("city"),
         "segment": segment,
@@ -551,16 +422,22 @@ def build_lead_record(contact_payload, calculator_payload, entry_source=None, ut
         "length": calculator_payload.get("length"),
         "width": calculator_payload.get("width"),
         "height": calculator_payload.get("height"),
-        "panel_type": None,
         "insulation": calculator_payload.get("insulation"),
         "thickness": calculator_payload.get("thickness"),
         "installation": calculator_payload.get("installation"),
         "deadline": calculator_payload.get("deadline"),
         "project": calculator_payload.get("project"),
+        "budget": budget,
+        "name": name,
+        "phone": phone,
+        "client_type": client_type,
+        "company_name": company_name,
         "price_min": price["price_min"],
         "price_max": price["price_max"],
         "price_min_formatted": price["price_min_formatted"],
         "price_max_formatted": price["price_max_formatted"],
-        "price_per_m2_min_formatted": price.get("price_per_m2_min_formatted"),
-        "price_per_m2_max_formatted": price.get("price_per_m2_max_formatted"),
+        "status": "Новый",
+        "consent_personal_data": True,
+        "consent_share_with_suppliers": True,
+        "consent_recorded_at": created_at,
     }
