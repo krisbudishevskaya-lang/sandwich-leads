@@ -1098,6 +1098,11 @@
 
     function renderPriceResult(data) {
         lastPriceResult = data;
+        
+        if (typeof ym === "function") {
+            ym(112274629, "reachGoal", "calculation_complete");
+        }
+
         var body = document.getElementById("calc-price-body");
         if (!body) return;
 
@@ -1328,6 +1333,11 @@
                     leadSubmitted = true;
                     lastSubmittedLeadId = result.data.lead_id;
                     lastSubmittedName = result.data.name;
+
+                    if (typeof ym === "function") {
+                        ym(112274629, "reachGoal", isPanels ? "panels_lead" : "construction_lead");
+                    }
+
                     showContactSuccessView(lastSubmittedLeadId, lastSubmittedName);
                 } else {
                     var message = result.data && result.data.error
@@ -1355,6 +1365,11 @@
     }
 
     function goToContactStep() {
+
+        if (typeof ym === "function") {
+            ym(112274629, "reachGoal", "lead_form_open");
+        }
+
         var allSteps = getActiveAllSteps();
         currentIndex = allSteps.length - 1;
         showStep(currentIndex);
@@ -1585,6 +1600,11 @@
 
     function startFlow(flow) {
         activeFlow = flow;
+
+        if (typeof ym === "function") {
+            ym(112274629, "reachGoal", flow === "panels" ? "panels_start" : "construction_start");
+        }
+
         currentIndex = 0;
         leadSubmitted = false;
         lastPriceResult = null;
