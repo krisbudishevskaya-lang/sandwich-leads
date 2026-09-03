@@ -120,10 +120,49 @@
         { value: "wall_and_roof", label: "Стеновые + кровельные" }
     ];
 
+    // Назначение объекта для панелей — лид-only поле (не участвует в
+    // Price Engine панелей), нужно для дальнейшего сопоставления с
+    // поставщиками. Использует общий словарь подписей OBJECT_LABELS на
+    // backend (см. services/display_labels.py) — там же добавлены две
+    // новые подписи (sto_workshop/utility) аддитивно.
+    var PANEL_PURPOSE_OPTIONS = [
+        { value: "garage", label: "Гараж" },
+        { value: "warehouse", label: "Склад" },
+        { value: "sto_workshop", label: "СТО / мастерская" },
+        { value: "production", label: "Производственное помещение" },
+        { value: "hangar", label: "Ангар" },
+        { value: "utility", label: "Хозяйственная постройка" },
+        { value: "other", label: "Другое" }
+    ];
+
+    // Утеплитель панелей — убрано «Не знаю», добавлено «Помогите
+    // подобрать» (внутреннее значение осталось "unknown" — тот же
+    // коэффициент Price Engine, что и раньше, меняется только подпись).
     var PANEL_INSULATION_OPTIONS = [
         { value: "mineral_wool", label: "Минеральная вата" },
         { value: "pir", label: "PIR" },
-        { value: "unknown", label: "Не знаю" }
+        { value: "unknown", label: "Помогите подобрать" }
+    ];
+
+    // Регион — новый явный вопрос для калькулятора панелей (в отличие
+    // от строительства, где регион определяется из свободного
+    // текстового поля "город" — эта логика не менялась).
+    var REGION_OPTIONS = [
+        { value: "moscow", label: "Москва" },
+        { value: "moscow_region", label: "Московская область" }
+    ];
+
+    // Ворота / окна и двери — только калькулятор строительства.
+    var GATES_OPTIONS = [
+        { value: "yes", label: "Да" },
+        { value: "no", label: "Нет" },
+        { value: "unknown", label: "Пока не знаю" }
+    ];
+
+    var WINDOWS_DOORS_OPTIONS = [
+        { value: "yes", label: "Да" },
+        { value: "no", label: "Нет" },
+        { value: "unknown", label: "Пока не знаю" }
     ];
 
     /* ------------------------------------------------------------------
@@ -161,6 +200,18 @@
             options: INSTALLATION_OPTIONS
         },
         {
+            key: "gates",
+            type: "options",
+            question: "Нужны ворота?",
+            options: GATES_OPTIONS
+        },
+        {
+            key: "windowsDoors",
+            type: "options",
+            question: "Нужны окна или двери?",
+            options: WINDOWS_DOORS_OPTIONS
+        },
+        {
             key: "city",
             type: "text",
             question: "Где будет объект?",
@@ -196,21 +247,51 @@
             options: PANEL_TYPE_OPTIONS
         },
         {
+            key: "purpose",
+            type: "cards",
+            question: "Для какого объекта нужны панели?",
+            options: PANEL_PURPOSE_OPTIONS
+        },
+        {
+            key: "size",
+            type: "size",
+            question: "Какой нужен объём?"
+        },
+        {
+            key: "usageMode",
+            type: "described_cards",
+            question: "Как будет использоваться помещение?",
+            options: USAGE_MODE_OPTIONS
+        },
+        {
             key: "insulation",
             type: "options",
             question: "Какой утеплитель?",
             options: PANEL_INSULATION_OPTIONS
         },
         {
-            key: "thickness",
+            key: "installation",
             type: "options",
-            question: "Какая нужна толщина?",
-            options: THICKNESS_OPTIONS
+            question: "Нужен монтаж?",
+            options: INSTALLATION_OPTIONS
         },
         {
-            key: "area",
-            type: "panel_area",
-            question: "Какой примерный объём (площадь)?"
+            key: "region",
+            type: "options",
+            question: "Где нужен заказ?",
+            options: REGION_OPTIONS
+        },
+        {
+            key: "deadline",
+            type: "options",
+            question: "Когда нужны панели?",
+            options: DEADLINE_OPTIONS
+        },
+        {
+            key: "project",
+            type: "options",
+            question: "Есть готовый проект?",
+            options: PROJECT_OPTIONS
         }
     ];
 
@@ -266,6 +347,8 @@
         recommendedWallThickness: null, // для будущей структуры лида, не влияет на расчёт
         recommendedRoofThickness: null, // для будущей структуры лида, не влияет на расчёт
         installation: null,
+        gates: null, // 'yes' | 'no' | 'unknown'
+        windowsDoors: null, // 'yes' | 'no' | 'unknown'
         city: null,
         deadline: null,
         project: null,
@@ -274,9 +357,23 @@
 
     var panelState = {
         panel_type: null,
+        purpose: null,
+        length: null,
+        width: null,
+        height: null,
+        area: null,
+        areaMode: "manual", // 'manual' | 'approximate'
+        approxArea: null,
+        usageMode: null, // 'seasonal' | 'year_round'
         insulation: null,
-        thickness: null,
-        area: null
+        thickness: null, // подбирается автоматически по usageMode
+        recommendedWallThickness: null,
+        recommendedRoofThickness: null,
+        installation: null,
+        region: null, // 'moscow' | 'moscow_region'
+        deadline: null,
+        project: null,
+        smallAreaWarningShownFor: null
     };
 
     // Состояние контактной формы — общее для обоих сценариев.
@@ -668,6 +765,7 @@
 
     function validateSizeStep() {
         var valid = true;
+        var activeState = getActiveState();
         var heightInput = document.getElementById("calc-height");
         var heightVal = parsePositiveNumber(heightInput.value);
 
@@ -675,20 +773,20 @@
             setFieldError("height", "Введите высоту — положительное число.");
             valid = false;
         } else {
-            state.height = heightVal;
+            activeState.height = heightVal;
         }
 
-        if (state.areaMode === "approximate") {
+        if (activeState.areaMode === "approximate") {
             var approxInput = document.getElementById("calc-approx-area");
             var approxVal = parsePositiveNumber(approxInput.value);
             if (approxVal === null) {
                 setFieldError("approxArea", "Введите примерную площадь — положительное число.");
                 valid = false;
             } else {
-                state.approxArea = approxVal;
-                state.area = approxVal;
-                state.length = null;
-                state.width = null;
+                activeState.approxArea = approxVal;
+                activeState.area = approxVal;
+                activeState.length = null;
+                activeState.width = null;
             }
         } else {
             var lengthInput = document.getElementById("calc-length");
@@ -700,36 +798,40 @@
                 setFieldError("length", "Введите длину — положительное число.");
                 valid = false;
             } else {
-                state.length = lengthVal;
+                activeState.length = lengthVal;
             }
 
             if (widthVal === null) {
                 setFieldError("width", "Введите ширину — положительное число.");
                 valid = false;
             } else {
-                state.width = widthVal;
+                activeState.width = widthVal;
             }
 
             if (lengthVal !== null && widthVal !== null) {
-                state.area = roundArea(lengthVal * widthVal);
+                activeState.area = roundArea(lengthVal * widthVal);
             }
         }
 
-        if (valid) {
+        // Мягкая подсказка объект/площадь актуальна только для сценария
+        // "Строительство" (термины "тип объекта" относятся к нему);
+        // для панелей "назначение" — отдельное лид-only поле с другими
+        // формулировками и не участвует в этой проверке.
+        if (valid && activeFlow === "construction") {
             var smallAreaSensitiveObjects = ["hangar", "warehouse", "production"];
             var needsAdvisory =
-                smallAreaSensitiveObjects.indexOf(state.object) !== -1 &&
-                state.area !== null &&
-                state.area < 50;
+                smallAreaSensitiveObjects.indexOf(activeState.object) !== -1 &&
+                activeState.area !== null &&
+                activeState.area < 50;
 
-            if (needsAdvisory && state.smallAreaWarningShownFor !== state.object) {
+            if (needsAdvisory && activeState.smallAreaWarningShownFor !== activeState.object) {
                 showSizeAdvisory(
                     "Для объектов типа ангара, склада или цеха обычно рассматривают площадь " +
                     "от 50 м². Возможно, для вашей задачи больше подойдёт гараж, хозблок или " +
                     "бытовка — вы можете вернуться назад и изменить тип объекта. Либо просто " +
                     "нажмите «Далее» ещё раз, чтобы продолжить с выбранным объектом."
                 );
-                state.smallAreaWarningShownFor = state.object;
+                activeState.smallAreaWarningShownFor = activeState.object;
                 return false;
             }
         }
@@ -845,6 +947,8 @@
         rows.push(["Режим использования", getOptionLabel(USAGE_MODE_OPTIONS, state.usageMode)]);
         rows.push(["Утеплитель", getOptionLabel(INSULATION_OPTIONS, state.insulation)]);
         rows.push(["Монтаж", getOptionLabel(INSTALLATION_OPTIONS, state.installation)]);
+        rows.push(["Ворота", getOptionLabel(GATES_OPTIONS, state.gates)]);
+        rows.push(["Окна/двери", getOptionLabel(WINDOWS_DOORS_OPTIONS, state.windowsDoors)]);
         rows.push(["Город", state.city || "—"]);
         rows.push(["Срок", getOptionLabel(DEADLINE_OPTIONS, state.deadline)]);
         rows.push(["Проект", getOptionLabel(PROJECT_OPTIONS, state.project)]);
@@ -852,12 +956,17 @@
     }
 
     function buildPanelSummaryRows() {
-        return [
-            ["Тип панели", getOptionLabel(PANEL_TYPE_OPTIONS, panelState.panel_type)],
-            ["Площадь", formatNumber(panelState.area) + " м²"],
-            ["Утеплитель", getOptionLabel(PANEL_INSULATION_OPTIONS, panelState.insulation)],
-            ["Толщина", getOptionLabel(THICKNESS_OPTIONS, panelState.thickness)]
-        ];
+        var rows = [];
+        rows.push(["Тип панели", getOptionLabel(PANEL_TYPE_OPTIONS, panelState.panel_type)]);
+        rows.push(["Объект", getOptionLabel(PANEL_PURPOSE_OPTIONS, panelState.purpose)]);
+        rows.push(["Площадь", formatNumber(panelState.area) + " м²"]);
+        rows.push(["Режим использования", getOptionLabel(USAGE_MODE_OPTIONS, panelState.usageMode)]);
+        rows.push(["Утеплитель", getOptionLabel(PANEL_INSULATION_OPTIONS, panelState.insulation)]);
+        rows.push(["Монтаж", getOptionLabel(INSTALLATION_OPTIONS, panelState.installation)]);
+        rows.push(["Регион", getOptionLabel(REGION_OPTIONS, panelState.region)]);
+        rows.push(["Срок", getOptionLabel(DEADLINE_OPTIONS, panelState.deadline)]);
+        rows.push(["Проект", getOptionLabel(PROJECT_OPTIONS, panelState.project)]);
+        return rows;
     }
 
     function renderSummary() {
@@ -887,20 +996,20 @@
     // лида, не для расчёта) запоминаются рекомендуемые толщины стен и
     // кровли — Price Engine работает с одним значением толщины на
     // объект и не поддерживает раздельный расчёт "стены/кровля".
-    function applyUsageModeToThickness() {
-        if (state.usageMode === "year_round") {
-            state.thickness = "100";
-            state.recommendedWallThickness = "100";
-            state.recommendedRoofThickness = "120";
-        } else if (state.usageMode === "seasonal") {
-            state.thickness = "50";
-            state.recommendedWallThickness = "50";
-            state.recommendedRoofThickness = "80";
+    function applyUsageModeToThickness(targetState) {
+        if (targetState.usageMode === "year_round") {
+            targetState.thickness = "100";
+            targetState.recommendedWallThickness = "100";
+            targetState.recommendedRoofThickness = "120";
+        } else if (targetState.usageMode === "seasonal") {
+            targetState.thickness = "50";
+            targetState.recommendedWallThickness = "50";
+            targetState.recommendedRoofThickness = "80";
         }
     }
 
     function buildPriceEnginePayload() {
-        applyUsageModeToThickness();
+        applyUsageModeToThickness(state);
         return {
             object: state.object,
             area: state.area,
@@ -914,10 +1023,11 @@
 
     // Расширенный payload калькулятора для /api/leads (только
     // строительство) — дополняет обычный payload Price Engine
-    // метаданными об источнике параметров (Этап 5, п.10/14). Backend
-    // читает эти поля через .get() и попросту игнорирует их при
-    // расчёте — на формулу и на Google Sheets/Telegram они не влияют,
-    // только на внутреннюю структуру объекта лида.
+    // метаданными об источнике параметров (Этап 5, п.10/14) и новыми
+    // квалификационными полями (ворота, окна/двери). Backend читает
+    // эти поля через .get() и попросту игнорирует их при расчёте — на
+    // формулу и на Google Sheets/Telegram они не влияют без отдельного
+    // аддитивного изменения структуры лида.
     function buildConstructionLeadCalculatorPayload() {
         var payload = buildPriceEnginePayload();
         payload.usage_mode = state.usageMode;
@@ -925,16 +1035,42 @@
         payload.thickness_source = "auto_selected";
         payload.recommended_wall_thickness = state.recommendedWallThickness;
         payload.recommended_roof_thickness = state.recommendedRoofThickness;
+        payload.gates = state.gates;
+        payload.windows_doors = state.windowsDoors;
         return payload;
     }
 
     function buildPanelPriceEnginePayload() {
+        applyUsageModeToThickness(panelState);
         return {
             panel_type: panelState.panel_type,
             area: panelState.area,
             insulation: panelState.insulation,
             thickness: panelState.thickness
         };
+    }
+
+    // Расширенный payload калькулятора панелей для /api/leads —
+    // дополняет обычный payload Price Engine новыми квалификационными
+    // полями (назначение объекта, режим использования, монтаж, регион,
+    // срок, проект) и метаданными об источнике толщины. Как и для
+    // строительства, backend просто игнорирует лишние ключи при
+    // расчёте — они попадают только в структуру лида.
+    function buildPanelLeadCalculatorPayload() {
+        var payload = buildPanelPriceEnginePayload();
+        payload.purpose = panelState.purpose;
+        payload.length = panelState.length;
+        payload.width = panelState.width;
+        payload.usage_mode = panelState.usageMode;
+        payload.insulation_source = panelState.insulation === "unknown" ? "help_requested" : "user_selected";
+        payload.thickness_source = "auto_selected";
+        payload.recommended_wall_thickness = panelState.recommendedWallThickness;
+        payload.recommended_roof_thickness = panelState.recommendedRoofThickness;
+        payload.installation = panelState.installation;
+        payload.region = panelState.region;
+        payload.deadline = panelState.deadline;
+        payload.project = panelState.project;
+        return payload;
     }
 
     function renderPriceLoading() {
@@ -964,13 +1100,22 @@
         lastPriceResult = data;
         var body = document.getElementById("calc-price-body");
         if (!body) return;
+
+        // Не показывать искусственный "диапазон" вида "30 000 ₽ – 30 000 ₽" —
+        // если после округления для отображения min и max совпадают,
+        // показываем одно значение с "≈". Сам расчёт (min/max) при этом
+        // не меняется, меняется только то, как он отображается.
+        var totalLine = data.price_min_formatted === data.price_max_formatted
+            ? "≈ " + escapeHtml(data.price_min_formatted)
+            : escapeHtml(data.price_min_formatted) + " – " + escapeHtml(data.price_max_formatted);
+
+        var perM2Line = data.price_per_m2_min_formatted === data.price_per_m2_max_formatted
+            ? "≈ " + escapeHtml(data.price_per_m2_min_formatted)
+            : "≈ " + escapeHtml(data.price_per_m2_min_formatted) + " – " + escapeHtml(data.price_per_m2_max_formatted);
+
         body.innerHTML =
-            '<p class="calc-price__range">' +
-                escapeHtml(data.price_min_formatted) + " – " + escapeHtml(data.price_max_formatted) +
-            "</p>" +
-            '<p class="calc-price__per-m2">≈ ' +
-                escapeHtml(data.price_per_m2_min_formatted) + " – " + escapeHtml(data.price_per_m2_max_formatted) +
-            "</p>" +
+            '<p class="calc-price__range">' + totalLine + "</p>" +
+            '<p class="calc-price__per-m2">' + perM2Line + "</p>" +
             '<p class="calc-price__note">' +
                 "Расчет предварительный. Финальная стоимость зависит от проекта, комплектации, " +
                 "фундамента, логистики и дополнительных работ." +
@@ -1040,7 +1185,9 @@
         if (!recap) return;
 
         var priceText = lastPriceResult
-            ? lastPriceResult.price_min_formatted + " – " + lastPriceResult.price_max_formatted
+            ? (lastPriceResult.price_min_formatted === lastPriceResult.price_max_formatted
+                ? "≈ " + lastPriceResult.price_min_formatted
+                : lastPriceResult.price_min_formatted + " – " + lastPriceResult.price_max_formatted)
             : "предварительная стоимость рассчитывается на предыдущем шаге";
 
         var summaryLine;
@@ -1160,7 +1307,7 @@
                 consent_personal_data: contactState.consentPersonalData === true,
                 consent_share_with_suppliers: contactState.consentShareWithSuppliers === true
             },
-            calculator: isPanels ? buildPanelPriceEnginePayload() : buildConstructionLeadCalculatorPayload(),
+            calculator: isPanels ? buildPanelLeadCalculatorPayload() : buildConstructionLeadCalculatorPayload(),
             source: getEntrySourceLabel(),
             utm: utmParams,
             lead_type: isPanels ? "panels" : "construction"
@@ -1400,8 +1547,9 @@
 
         if (areaToggle && sizeWrapper) {
             areaToggle.addEventListener("change", function () {
-                state.areaMode = areaToggle.checked ? "approximate" : "manual";
-                sizeWrapper.setAttribute("data-mode", state.areaMode);
+                var activeState = getActiveState();
+                activeState.areaMode = areaToggle.checked ? "approximate" : "manual";
+                sizeWrapper.setAttribute("data-mode", activeState.areaMode);
                 clearStepErrors();
             });
         }
@@ -1454,6 +1602,8 @@
             wireSizeStep();
             wireCityInput();
             applyPresetObject();
+        } else if (flow === "panels") {
+            wireSizeStep();
         }
         wireContactStep();
 

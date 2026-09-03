@@ -50,13 +50,17 @@ import os
 
 from services.display_labels import (
     DEADLINE_LABELS,
+    GATES_LABELS,
     INSTALLATION_LABELS,
     INSULATION_LABELS,
     LEAD_TYPE_LABELS_SHEETS,
     OBJECT_LABELS,
     PANEL_TYPE_LABELS,
+    PARAMETER_SOURCE_LABELS,
     PROJECT_LABELS,
     THICKNESS_LABELS,
+    USAGE_MODE_LABELS,
+    WINDOWS_DOORS_LABELS,
     get_label,
 )
 from services.lead_calculator import BUDGET_LABELS, CLIENT_TYPE_LABELS
@@ -68,8 +72,9 @@ SHEET_NAME = "Лиды"
 
 # Порядок первых 31 колонки соответствует Master ТЗ §45 и НЕ меняется
 # (существующие реальные строки в таблице уже используют этот порядок).
-# "Тип заявки" и "Тип панели" (Этап 2) добавлены в КОНЕЦ списка, чтобы
-# не сдвинуть ранее записанные строки.
+# "Тип заявки" и "Тип панели" (Этап 2), а также колонки ниже (доп. ТЗ
+# "Доделка калькуляторов") добавлены в КОНЕЦ списка, чтобы не сдвинуть
+# ранее записанные строки.
 SHEET_COLUMNS = [
     "Lead ID", "Дата", "Источник",
     "UTM Source", "UTM Medium", "UTM Campaign", "UTM Content", "UTM Term",
@@ -80,6 +85,8 @@ SHEET_COLUMNS = [
     "Предварительная стоимость (мин)", "Предварительная стоимость (макс)",
     "Статус", "Согласие на обработку ПД", "Согласие на передачу поставщикам",
     "Тип заявки", "Тип панели",
+    "Режим использования", "Источник утеплителя", "Источник толщины",
+    "Ворота", "Окна и двери",
 ]
 
 
@@ -126,6 +133,11 @@ def _record_to_row(record):
         "Да" if record.get("consent_share_with_suppliers") else "Нет",
         get_label(LEAD_TYPE_LABELS_SHEETS, lead_type, ""),
         get_label(PANEL_TYPE_LABELS, record.get("panel_type"), ""),
+        get_label(USAGE_MODE_LABELS, record.get("usage_mode"), ""),
+        get_label(PARAMETER_SOURCE_LABELS, record.get("insulation_source"), ""),
+        get_label(PARAMETER_SOURCE_LABELS, record.get("thickness_source"), ""),
+        get_label(GATES_LABELS, record.get("gates"), ""),
+        get_label(WINDOWS_DOORS_LABELS, record.get("windows_doors"), ""),
     ]
 
 

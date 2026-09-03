@@ -816,10 +816,32 @@ h2 {
     }
 }
 
-.calculator__flow-chooser-options .button-primary,
-.calculator__flow-chooser-options .button-secondary {
+/* Единый нейтральный стиль обоих вариантов переключателя — раньше один
+   вариант был тёмной кнопкой (button-primary), другой светлой
+   (button-secondary), что выглядело как два разных компонента. */
+.calc-flow-option {
     flex: 1;
     max-width: 280px;
+    font: inherit;
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0.95rem 1.5rem;
+    border-radius: var(--radius);
+    border: 1.5px solid var(--color-border);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.calc-flow-option:hover {
+    border-color: var(--color-accent);
+}
+
+.calc-flow-option.is-selected {
+    border-color: var(--color-accent);
+    background-color: var(--color-bg);
+    box-shadow: inset 0 0 0 1.5px var(--color-accent);
 }
 
 /* --------------------------------------------------------------------

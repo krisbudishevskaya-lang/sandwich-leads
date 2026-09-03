@@ -513,28 +513,47 @@ def build_lead_record(contact_payload, calculator_payload, entry_source=None, ut
         price = calculate_panel_price_estimate(calculator_payload)
         segment = determine_segment(price["area"])
 
+        # Регион панелей собирается явным вопросом (moscow/moscow_region),
+        # а не эвристикой по свободному тексту города, как у строительства.
+        # Приводим к тому же человекочитаемому виду, что и определение
+        # региона строительства, чтобы колонка "Регион" в Google Sheets
+        # выглядела одинаково для обоих типов заявки.
+        region_value = calculator_payload.get("region")
+        region_display = {
+            "moscow": "Москва",
+            "moscow_region": "Московская область",
+        }.get(region_value)
+
         return {
             **common_fields,
-            "region": None,
+            "region": region_display,
             "city": calculator_payload.get("city"),
             "segment": segment,
-            "object": None,
+            "object": calculator_payload.get("purpose"),
             "area": price["area"],
-            "length": None,
-            "width": None,
-            "height": None,
+            "length": calculator_payload.get("length"),
+            "width": calculator_payload.get("width"),
+            "height": calculator_payload.get("height"),
             "panel_type": calculator_payload.get("panel_type"),
             "insulation": calculator_payload.get("insulation"),
             "thickness": calculator_payload.get("thickness"),
-            "installation": None,
-            "deadline": None,
-            "project": None,
+            "installation": calculator_payload.get("installation"),
+            "deadline": calculator_payload.get("deadline"),
+            "project": calculator_payload.get("project"),
             "price_min": price["price_min"],
             "price_max": price["price_max"],
             "price_min_formatted": price["price_min_formatted"],
             "price_max_formatted": price["price_max_formatted"],
             "price_per_m2_min_formatted": price["price_per_m2_min_formatted"],
             "price_per_m2_max_formatted": price["price_per_m2_max_formatted"],
+            # --- Новые поля (доп. ТЗ "Доделка калькуляторов") ---
+            "usage_mode": calculator_payload.get("usage_mode"),
+            "insulation_source": calculator_payload.get("insulation_source", "user_selected"),
+            "thickness_source": calculator_payload.get("thickness_source"),
+            "recommended_wall_thickness": calculator_payload.get("recommended_wall_thickness"),
+            "recommended_roof_thickness": calculator_payload.get("recommended_roof_thickness"),
+            "gates": None,
+            "windows_doors": None,
         }
 
     # lead_type == "construction" — существующая логика (Price Engine
@@ -577,4 +596,6 @@ def build_lead_record(contact_payload, calculator_payload, entry_source=None, ut
         "thickness_source": calculator_payload.get("thickness_source"),
         "recommended_wall_thickness": calculator_payload.get("recommended_wall_thickness"),
         "recommended_roof_thickness": calculator_payload.get("recommended_roof_thickness"),
+        "gates": calculator_payload.get("gates"),
+        "windows_doors": calculator_payload.get("windows_doors"),
     }

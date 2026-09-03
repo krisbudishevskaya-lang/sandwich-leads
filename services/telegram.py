@@ -41,13 +41,14 @@ import urllib.request
 
 from services.display_labels import (
     DEADLINE_LABELS,
+    GATES_LABELS,
     INSTALLATION_LABELS,
     INSULATION_LABELS,
-    LEAD_TYPE_LABELS_TELEGRAM,
     OBJECT_LABELS,
     PANEL_TYPE_LABELS,
     PROJECT_LABELS,
-    THICKNESS_LABELS,
+    USAGE_MODE_LABELS,
+    WINDOWS_DOORS_LABELS,
 )
 from services.lead_calculator import BUDGET_LABELS, CLIENT_TYPE_LABELS
 
@@ -90,18 +91,98 @@ def _format_size_line(record):
         return "{} × {} × {} м".format(length, width, height)
     if height is not None:
         return "площадь указана вручную, высота {} м".format(height)
-    return "—"
+    return None
+
+
+def _format_range_line(min_formatted, max_formatted):
+    """
+    Собрать строку диапазона стоимости, не показывая искусственный
+    "диапазон" вида "30 000 ₽ – 30 000 ₽", если min и max после
+    округления для отображения совпадают (тот же принцип, что и в
+    static/js/calculator.js renderPriceResult — фикс сделан отдельно
+    здесь, так как Telegram-сообщение строится на backend из готовой
+    записи лида, независимо от фронтенда). Сам расчёт стоимости этим
+    не затрагивается — меняется только то, как уже посчитанный
+    результат отображается.
+    """
+    if not min_formatted or not max_formatted:
+        return min_formatted or max_formatted or "—"
+    if min_formatted == max_formatted:
+        return "≈ {}".format(min_formatted)
+    return "{} – {}".format(min_formatted, max_formatted)
 
 
 def _build_construction_notification_text(record):
     """
-    Шаблон уведомления для строительства (Master ТЗ §51, дополнен
-    строкой "Тип заявки" и "Тип клиента" по уточнению — Этап 2, §16/§23).
+    Шаблон уведомления для строительства — обновлённая структура
+    (доп. ТЗ "Обновить Telegram-уведомления"): заголовок с типом
+    заявки через emoji-метку вместо отдельной строки "Тип заявки",
+    единый блок "ЗАЯВКА" со всеми параметрами объекта, включая новые
+    поля "Ворота"/"Окна и двери". Технические source-поля
+    (insulation_source/thickness_source/recommended_*) сознательно НЕ
+    выводятся — они внутренние и не помогают поставщику понять заявку.
     """
-    segment = (record.get("segment") or "—").upper()
     object_label = OBJECT_LABELS.get(record.get("object"), record.get("object") or "—")
+    usage_mode_label = USAGE_MODE_LABELS.get(record.get("usage_mode"), record.get("usage_mode") or "—")
     insulation_label = INSULATION_LABELS.get(record.get("insulation"), record.get("insulation") or "—")
-    thickness_label = THICKNESS_LABELS.get(record.get("thickness"), record.get("thickness") or "—")
+    installation_label = INSTALLATION_LABELS.get(record.get("installation"), record.get("installation") or "—")
+    gates_label = GATES_LABELS.get(record.get("gates"), record.get("gates") or "—")
+    windows_doors_label = WINDOWS_DOORS_LABELS.get(record.get("windows_doors"), record.get("windows_doors") or "—")
+    deadline_label = DEADLINE_LABELS.get(record.get("deadline"), record.get("deadline") or "—")
+    project_label = PROJECT_LABELS.get(record.get("project"), record.get("project") or "—")
+    client_type_label = CLIENT_TYPE_LABELS.get(record.get("client_type"), record.get("client_type") or "—")
+
+    budget_value = record.get("budget")
+    budget_label = BUDGET_LABELS.get(budget_value, "Не указан") if budget_value else "Не указан"
+
+    area = _fmt_num(record.get("area")) or "—"
+    size_line = _format_size_line(record) or "—"
+    price_line = _format_range_line(record.get("price_min_formatted"), record.get("price_max_formatted"))
+    per_m2_line = _format_range_line(record.get("price_per_m2_min_formatted"), record.get("price_per_m2_max_formatted"))
+
+    lines = [
+        "🔥 НОВЫЙ ЛИД #{}".format(record.get("lead_id") or "—"),
+        "",
+        "🏗 СТРОИТЕЛЬСТВО ОБЪЕКТА",
+        "",
+        "📋 ЗАЯВКА",
+        "Тип объекта: {}".format(object_label),
+        "Площадь: {} м²".format(area),
+        "Размер: {}".format(size_line),
+        "Режим использования: {}".format(usage_mode_label),
+        "Утепление: {}".format(insulation_label),
+        "Монтаж: {}".format(installation_label),
+        "Ворота: {}".format(gates_label),
+        "Окна и двери: {}".format(windows_doors_label),
+        "Регион: {}".format(record.get("city") or record.get("region") or "—"),
+        "Срок: {}".format(deadline_label),
+        "Проект: {}".format(project_label),
+        "Бюджет: {}".format(budget_label),
+        "",
+        "💰 ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ",
+        "Итого: {}".format(price_line),
+        "Цена за м²: {}".format(per_m2_line),
+        "",
+        "👤 КЛИЕНТ",
+        "Имя: {}".format(record.get("name") or "—"),
+        "Телефон: {}".format(record.get("phone") or "—"),
+        "Тип клиента: {}".format(client_type_label),
+    ]
+    return "\n".join(lines)
+
+
+def _build_panel_notification_text(record):
+    """
+    Шаблон уведомления для сэндвич-панелей как материала — обновлённая
+    структура (доп. ТЗ "Обновить Telegram-уведомления"). Поле "Объект"
+    берётся из record["object"] — калькулятор панелей сохраняет туда
+    выбранное назначение объекта (см. services/lead_calculator,
+    build_lead_record, ветка panels: "object": calculator_payload.get("purpose")).
+    """
+    panel_type_label = PANEL_TYPE_LABELS.get(record.get("panel_type"), record.get("panel_type") or "—")
+    object_label = OBJECT_LABELS.get(record.get("object"), record.get("object") or "—")
+    usage_mode_label = USAGE_MODE_LABELS.get(record.get("usage_mode"), record.get("usage_mode") or "—")
+    insulation_label = INSULATION_LABELS.get(record.get("insulation"), record.get("insulation") or "—")
     installation_label = INSTALLATION_LABELS.get(record.get("installation"), record.get("installation") or "—")
     deadline_label = DEADLINE_LABELS.get(record.get("deadline"), record.get("deadline") or "—")
     project_label = PROJECT_LABELS.get(record.get("project"), record.get("project") or "—")
@@ -112,86 +193,36 @@ def _build_construction_notification_text(record):
 
     area = _fmt_num(record.get("area")) or "—"
     size_line = _format_size_line(record)
-    price_line = "{} – {}".format(
-        record.get("price_min_formatted") or "—",
-        record.get("price_max_formatted") or "—",
-    )
-    temperature = determine_temperature(record.get("deadline"))
+    price_line = _format_range_line(record.get("price_min_formatted"), record.get("price_max_formatted"))
+    per_m2_line = _format_range_line(record.get("price_per_m2_min_formatted"), record.get("price_per_m2_max_formatted"))
 
     lines = [
-        "🔥  НОВЫЙ ЛИД #{}".format(record.get("lead_id") or "—"),
+        "🔥 НОВЫЙ ЛИД #{}".format(record.get("lead_id") or "—"),
         "",
-        "Тип заявки: {}".format(LEAD_TYPE_LABELS_TELEGRAM.get("construction")),
+        "🟦 СЭНДВИЧ-ПАНЕЛИ",
         "",
-        "Сегмент: {}".format(segment),
+        "📋 ЗАЯВКА",
+        "Тип панелей: {}".format(panel_type_label),
         "Объект: {}".format(object_label),
         "Площадь: {} м²".format(area),
-        "",
-        "Размер: {}".format(size_line),
+    ]
+    if size_line:
+        lines.append("Размер: {}".format(size_line))
+    lines += [
+        "Режим использования: {}".format(usage_mode_label),
         "Утеплитель: {}".format(insulation_label),
-        "Толщина: {}".format(thickness_label),
         "Монтаж: {}".format(installation_label),
-        "",
-        "Город: {}".format(record.get("city") or "—"),
+        "Регион: {}".format(record.get("region") or record.get("city") or "—"),
         "Срок: {}".format(deadline_label),
         "Проект: {}".format(project_label),
         "Бюджет: {}".format(budget_label),
         "",
-        "Предварительный расчет:",
-        price_line,
+        "💰 ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ",
+        "Итого: {}".format(price_line),
+        "Цена за м²: {}".format(per_m2_line),
         "",
-        "Клиент: {}".format(record.get("name") or "—"),
-        "Телефон: {}".format(record.get("phone") or "—"),
-        "Тип клиента: {}".format(client_type_label),
-        "",
-        "Температура: {}".format(temperature),
-    ]
-    return "\n".join(lines)
-
-
-def _build_panel_notification_text(record):
-    """
-    Шаблон уведомления для сэндвич-панелей как материала (Этап 2, §24).
-
-    Поля "Монтаж", "Срок", "Проект", "Регион" в этом сценарии
-    калькулятором не собираются (см. services/lead_calculator) —
-    соответствующие строки в шаблон не включаются, чтобы не показывать
-    менеджеру пустые/неприменимые поля.
-    """
-    panel_type_label = PANEL_TYPE_LABELS.get(record.get("panel_type"), record.get("panel_type") or "—")
-    insulation_label = INSULATION_LABELS.get(record.get("insulation"), record.get("insulation") or "—")
-    thickness_label = THICKNESS_LABELS.get(record.get("thickness"), record.get("thickness") or "—")
-    client_type_label = CLIENT_TYPE_LABELS.get(record.get("client_type"), record.get("client_type") or "—")
-
-    area = _fmt_num(record.get("area")) or "—"
-    price_line = "{} – {}".format(
-        record.get("price_min_formatted") or "—",
-        record.get("price_max_formatted") or "—",
-    )
-    per_m2_line = "{} – {}".format(
-        record.get("price_per_m2_min_formatted") or "—",
-        record.get("price_per_m2_max_formatted") or "—",
-    )
-
-    lines = [
-        "🔥  НОВЫЙ ЛИД #{}".format(record.get("lead_id") or "—"),
-        "",
-        "Тип заявки: {}".format(LEAD_TYPE_LABELS_TELEGRAM.get("panels")),
-        "",
-        "Тип панели: {}".format(panel_type_label),
-        "Площадь: {} м²".format(area),
-        "Утеплитель: {}".format(insulation_label),
-        "Толщина: {}".format(thickness_label),
-    ]
-    if record.get("city"):
-        lines.append("Город: {}".format(record.get("city")))
-    lines += [
-        "",
-        "Предварительный расчет:",
-        price_line,
-        "Ориентировочно: {}".format(per_m2_line),
-        "",
-        "Клиент: {}".format(record.get("name") or "—"),
+        "👤 КЛИЕНТ",
+        "Имя: {}".format(record.get("name") or "—"),
         "Телефон: {}".format(record.get("phone") or "—"),
         "Тип клиента: {}".format(client_type_label),
     ]
