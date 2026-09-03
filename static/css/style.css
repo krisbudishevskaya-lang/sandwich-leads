@@ -15,7 +15,6 @@
     --color-accent: #2C5A85;
     --color-accent-dark: #1E4363;
     --color-border: #DFE3E7;
-    --color-seam: rgba(18, 22, 26, 0.055);
     --color-footer-bg: #12161A;
     --color-footer-text: #C6CCD1;
     --color-footer-text-muted: #838B93;
@@ -129,22 +128,8 @@ h2 {
 
 .hero {
     position: relative;
-    overflow: hidden;
     background-color: var(--color-bg);
     padding-block: clamp(56px, 12vw, 108px) clamp(64px, 12vw, 96px);
-}
-
-.hero__seams {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background-image: repeating-linear-gradient(
-        to bottom,
-        transparent 0,
-        transparent 119px,
-        var(--color-seam) 119px,
-        var(--color-seam) 121px
-    );
 }
 
 .hero__inner {
@@ -153,7 +138,7 @@ h2 {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 20px;
+    gap: 14px;
 }
 
 .eyebrow {
@@ -162,6 +147,7 @@ h2 {
     font-weight: 700;
     letter-spacing: 0.1em;
     color: var(--color-accent);
+    margin-bottom: 4px;
 }
 
 .hero__title {
@@ -169,6 +155,7 @@ h2 {
     font-weight: 800;
     letter-spacing: -0.02em;
     color: var(--color-text);
+    margin-bottom: 6px;
 }
 
 .hero__subtitle {
@@ -177,13 +164,230 @@ h2 {
     max-width: 42ch;
 }
 
+.hero__subtitle--secondary {
+    font-size: 0.92rem;
+    color: var(--color-text-muted);
+    opacity: 0.85;
+    margin-top: -6px;
+}
+
 .hero .button-primary {
     margin-top: 8px;
 }
 
 /* --------------------------------------------------------------------
-   Trust — три преимущества
+   Site header
    -------------------------------------------------------------------- */
+
+.site-header {
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.site-header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-block: 14px;
+}
+
+.site-header__logo {
+    font-weight: 800;
+    font-size: 1.15rem;
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    text-decoration: none;
+    flex-shrink: 0;
+}
+
+.site-header__nav {
+    display: none;
+    gap: 24px;
+    font-size: 0.92rem;
+    font-weight: 600;
+}
+
+.site-header__nav a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+}
+
+.site-header__nav a:hover {
+    color: var(--color-text);
+}
+
+.site-header__cta {
+    padding: 0.6rem 1.1rem;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+@media (min-width: 860px) {
+    .site-header__nav {
+        display: flex;
+    }
+}
+
+/* --------------------------------------------------------------------
+   Button variants
+   -------------------------------------------------------------------- */
+
+.button-secondary {
+    display: inline-block;
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    font-weight: 700;
+    font-size: 1rem;
+    text-decoration: none;
+    padding: 0.95rem 1.9rem;
+    border-radius: var(--radius);
+    border: 1.5px solid var(--color-border);
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.button-secondary:hover {
+    border-color: var(--color-accent);
+}
+
+/* --------------------------------------------------------------------
+   Hero — сигналы доверия и два сценария
+   -------------------------------------------------------------------- */
+
+.hero__signals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    list-style: none;
+    margin-top: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--color-border);
+    width: 100%;
+    max-width: 560px;
+}
+
+.hero__signals li {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    padding-left: 18px;
+    position: relative;
+}
+
+.hero__signals li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--color-accent);
+    font-weight: 800;
+}
+
+.hero__scenarios {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    width: 100%;
+    max-width: 720px;
+    margin-top: 24px;
+    align-items: stretch;
+}
+
+@media (min-width: 760px) {
+    .hero__scenarios {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.scenario-card {
+    background-color: var(--color-surface);
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    height: 100%;
+}
+
+.scenario-card__eyebrow {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--color-accent);
+}
+
+.scenario-card__title {
+    font-size: 1.18rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+}
+
+@media (min-width: 760px) {
+    .scenario-card__title {
+        /* Резервируем высоту под 2 строки — у одной карточки заголовок
+           умещается в одну строку, у другой переносится на две; без
+           этого кнопки в карточках оказываются на разной высоте. */
+        min-height: 2.7em;
+    }
+}
+
+.scenario-card__text {
+    color: var(--color-text-muted);
+    font-size: 0.92rem;
+    margin-bottom: 8px;
+}
+
+.scenario-card__cta {
+    width: 100%;
+    text-align: center;
+    margin-top: auto;
+}
+
+.scenario-card__disclaimer {
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    margin-top: 8px;
+}
+
+/* --------------------------------------------------------------------
+   Trust — четыре преимущества
+   -------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------
+   "Один запрос вместо десятков звонков" — заметный смысловой блок
+   -------------------------------------------------------------------- */
+
+.one-request {
+    padding-block: clamp(36px, 7vw, 56px);
+    background-color: var(--color-accent);
+}
+
+.one-request__inner {
+    max-width: 640px;
+    text-align: center;
+    margin-inline: auto;
+}
+
+.one-request h2 {
+    color: #FFFFFF;
+    font-size: clamp(1.3rem, 1.05rem + 1vw, 1.7rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 10px;
+}
+
+.one-request p {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.98rem;
+}
 
 .trust {
     padding-block: clamp(40px, 8vw, 72px);
@@ -229,18 +433,18 @@ h2 {
 }
 
 /* --------------------------------------------------------------------
-   Pre-calculator
+   "Не знаете, с чего начать"
    -------------------------------------------------------------------- */
 
-.pre-calculator {
+.not-sure {
     padding-block: clamp(40px, 8vw, 72px);
     background-color: var(--color-surface);
     border-top: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
 }
 
-.pre-calculator__inner {
-    max-width: 560px;
+.not-sure__inner {
+    max-width: 620px;
     text-align: center;
     display: flex;
     flex-direction: column;
@@ -248,18 +452,374 @@ h2 {
     gap: 14px;
 }
 
-.pre-calculator h2 {
+.not-sure h2 {
     font-size: clamp(1.4rem, 1.1rem + 1vw, 1.85rem);
     font-weight: 800;
     letter-spacing: -0.01em;
 }
 
-.pre-calculator p {
+.not-sure p {
     color: var(--color-text-muted);
 }
 
-.pre-calculator .button-primary {
+.not-sure .button-primary {
     margin-top: 8px;
+}
+
+/* --------------------------------------------------------------------
+   Section title (общий утилитарный класс)
+   -------------------------------------------------------------------- */
+
+.section-title {
+    font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    text-align: center;
+    margin-bottom: clamp(28px, 5vw, 44px);
+    text-wrap: balance;
+}
+
+.section-title--companies {
+    max-width: 900px;
+    margin-inline: auto;
+    font-size: clamp(1.35rem, 1.05rem + 1.1vw, 1.85rem);
+}
+
+/* --------------------------------------------------------------------
+   Как это работает
+   -------------------------------------------------------------------- */
+
+.how-it-works {
+    padding-block: clamp(48px, 9vw, 88px);
+}
+
+.how-it-works__steps {
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    counter-reset: none;
+}
+
+@media (min-width: 720px) {
+    .how-it-works__steps {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (min-width: 1080px) {
+    .how-it-works__steps {
+        grid-template-columns: repeat(5, 1fr);
+    }
+}
+
+.how-it-works__steps li {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.how-it-works__num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--color-bg);
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--color-accent);
+    letter-spacing: 0.02em;
+    margin-bottom: 4px;
+}
+
+.how-it-works__steps h3 {
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.how-it-works__steps p {
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+}
+
+/* --------------------------------------------------------------------
+   Companies (trust-блок компаний)
+   -------------------------------------------------------------------- */
+
+.companies {
+    padding-block: clamp(48px, 9vw, 88px);
+    background-color: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.companies__carousel {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.companies__grid {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scroll-behavior: smooth;
+    padding-block: 4px;
+    padding-inline: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.companies__grid::-webkit-scrollbar {
+    display: none;
+}
+
+.companies__empty {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.92rem;
+    padding: 32px;
+    border: 1.5px dashed var(--color-border);
+    border-radius: var(--radius);
+    width: 100%;
+}
+
+.companies__nav {
+    flex-shrink: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-border);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.companies__nav:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+@media (min-width: 700px) {
+    .companies__nav {
+        display: flex;
+    }
+}
+
+.company-card {
+    flex: 0 0 auto;
+    width: 268px;
+    scroll-snap-align: start;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    background-color: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+    min-height: 220px;
+}
+
+@media (min-width: 540px) {
+    .company-card {
+        width: 288px;
+    }
+}
+
+.company-card__name {
+    font-weight: 800;
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+
+.company-card__type {
+    font-size: 0.87rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+}
+
+.company-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.company-card__tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--color-accent);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    padding: 3px 10px;
+}
+
+.company-card__region {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.company-card__region-icon {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+}
+
+.company-card__footer {
+    margin-top: auto;
+    padding-top: 12px;
+}
+
+.company-card__rating {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.company-card__rating span {
+    font-weight: 400;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    margin-left: 4px;
+}
+
+.company-card__rating-source {
+    margin-top: 2px;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+}
+
+/* --------------------------------------------------------------------
+   FAQ
+   -------------------------------------------------------------------- */
+
+.faq {
+    padding-block: clamp(48px, 9vw, 88px);
+}
+
+.faq__list {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.faq__item {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    background-color: var(--color-surface);
+}
+
+.faq__item summary {
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.98rem;
+    list-style: none;
+}
+
+.faq__item summary::-webkit-details-marker {
+    display: none;
+}
+
+.faq__item summary::before {
+    content: "+ ";
+    color: var(--color-accent);
+    font-weight: 800;
+}
+
+.faq__item[open] summary::before {
+    content: "− ";
+}
+
+.faq__item p {
+    margin-top: 10px;
+    color: var(--color-text-muted);
+    font-size: 0.92rem;
+}
+
+/* --------------------------------------------------------------------
+   Final CTA
+   -------------------------------------------------------------------- */
+
+.final-cta {
+    padding-block: clamp(48px, 9vw, 88px);
+    background-color: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+}
+
+.final-cta__inner {
+    max-width: 620px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.final-cta h2 {
+    font-size: clamp(1.4rem, 1.1rem + 1vw, 1.85rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+
+.final-cta p {
+    color: var(--color-text-muted);
+}
+
+.final-cta__note {
+    font-size: 0.85rem;
+    margin-top: -4px;
+}
+
+/* --------------------------------------------------------------------
+   Calculator flow chooser
+   -------------------------------------------------------------------- */
+
+.calculator__flow-chooser {
+    text-align: center;
+    padding-block: 12px;
+}
+
+.calculator__flow-chooser-title {
+    font-weight: 800;
+    font-size: 1.1rem;
+    margin-bottom: 16px;
+}
+
+.calculator__flow-chooser-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+@media (min-width: 480px) {
+    .calculator__flow-chooser-options {
+        flex-direction: row;
+        justify-content: center;
+    }
+}
+
+.calculator__flow-chooser-options .button-primary,
+.calculator__flow-chooser-options .button-secondary {
+    flex: 1;
+    max-width: 280px;
 }
 
 /* --------------------------------------------------------------------
@@ -371,6 +931,56 @@ h2 {
     border-color: var(--color-accent);
     background-color: var(--color-surface);
     box-shadow: inset 0 0 0 1.5px var(--color-accent);
+}
+
+/* Карточки с описанием (режим использования, утеплитель — Этап 5) */
+
+.calc-described-cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+@media (min-width: 560px) {
+    .calc-described-cards {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+}
+
+.calc-described-card {
+    font: inherit;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background-color: var(--color-bg);
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.calc-described-card:hover {
+    border-color: var(--color-accent);
+}
+
+.calc-described-card.is-selected {
+    border-color: var(--color-accent);
+    background-color: var(--color-surface);
+    box-shadow: inset 0 0 0 1.5px var(--color-accent);
+}
+
+.calc-described-card__title {
+    font-weight: 700;
+    font-size: 0.98rem;
+    color: var(--color-text);
+}
+
+.calc-described-card__description {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    line-height: 1.45;
 }
 
 /* Options (single-select lists) */
@@ -777,6 +1387,10 @@ h2 {
     margin-top: 4px;
 }
 
+.calculator__error--advisory {
+    color: var(--color-accent);
+}
+
 .calculator__nav {
     display: flex;
     justify-content: space-between;
@@ -811,18 +1425,29 @@ h2 {
 .site-footer {
     background-color: var(--color-footer-bg);
     color: var(--color-footer-text);
-    padding-block: 28px;
+    padding-block: 40px;
 }
 
 .site-footer__inner {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 28px;
+}
+
+.site-footer__brand {
+    max-width: 420px;
+}
+
+.site-footer__logo {
+    font-weight: 800;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
 }
 
 .site-footer__note {
     font-size: 0.85rem;
     color: var(--color-footer-text-muted);
+    line-height: 1.5;
 }
 
 .site-footer__links {
@@ -841,10 +1466,83 @@ h2 {
     text-decoration: underline;
 }
 
-@media (min-width: 700px) {
+@media (min-width: 860px) {
     .site-footer__inner {
         flex-direction: row;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
     }
+
+    .site-footer__links {
+        max-width: 460px;
+        justify-content: flex-end;
+    }
+}
+
+/* --------------------------------------------------------------------
+   Юридические страницы (/privacy, /consent, /consent-transfer)
+   -------------------------------------------------------------------- */
+
+.legal-page {
+    padding-block: clamp(32px, 6vw, 56px);
+}
+
+.legal-page__inner {
+    max-width: 720px;
+}
+
+.legal-page__updated {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 28px;
+}
+
+.legal-page h1 {
+    font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+}
+
+.legal-page h2 {
+    font-size: 1.15rem;
+    font-weight: 800;
+    margin-top: 32px;
+    margin-bottom: 12px;
+}
+
+.legal-page h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-top: 20px;
+    margin-bottom: 8px;
+}
+
+.legal-page p {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--color-text);
+    margin-bottom: 12px;
+}
+
+.legal-page ul {
+    margin: 0 0 12px 0;
+    padding-left: 20px;
+}
+
+.legal-page li {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin-bottom: 6px;
+}
+
+.legal-page a {
+    color: var(--color-accent);
+}
+
+.legal-page__back {
+    display: inline-block;
+    margin-top: 32px;
+    font-size: 0.9rem;
+    font-weight: 600;
 }

@@ -1,14 +1,26 @@
-// Sandwich Leads MVP — calculator.js
+// ПрайсМетр — calculator.js
 //
-// Многошаговый калькулятор (PROMPT 3).
+// Многошаговый калькулятор с двумя независимыми коммерческими
+// сценариями (Этап 2-3 доработки):
+//   activeFlow === "construction" — расчёт строительства объекта
+//     (PROMPT 3-8, логика и Price Engine НЕ изменены);
+//   activeFlow === "panels"       — расчёт сэндвич-панелей как
+//     материала (новый сценарий, отдельный Price Engine).
+//
+// Оба сценария используют один и тот же движок шагов/навигации/
+// контактной формы, чтобы не дублировать архитектуру. Выбор сценария
+// происходит либо через две карточки в Hero, либо через кнопки-выбор
+// прямо в калькуляторе, либо автоматически по preset_flow с рекламных
+// входов (/garazh, /sto, /sklad, /angar, /bystrovozvodimye-zdaniya,
+// /sandwich-paneli).
+//
 // Полностью работает на клиенте, без перезагрузки страницы.
-// Price Engine НЕ реализован — стоимость на этом этапе placeholder.
 
 (function () {
     "use strict";
 
     /* ------------------------------------------------------------------
-       Справочники вариантов ответа
+       Справочники вариантов ответа — СТРОИТЕЛЬСТВО (не изменены)
        ------------------------------------------------------------------ */
 
     var OBJECT_OPTIONS = [
@@ -21,13 +33,73 @@
         { value: "other", label: "Другое" }
     ];
 
+    // Утеплитель — понятные потребителю варианты вместо технических
+    // названий без объяснения (убрано «Не знаю» — клиент всегда должен
+    // иметь возможность выбрать понятный вариант с описанием).
+    // Технически по-прежнему используются существующие коэффициенты
+    // Price Engine (mineral_wool/pir/pur) — формула не менялась.
     var INSULATION_OPTIONS = [
-        { value: "mineral_wool", label: "Минвата" },
-        { value: "pir", label: "PIR" },
-        { value: "pur", label: "PUR" },
-        { value: "unknown", label: "Не знаю" }
+        {
+            value: "mineral_wool",
+            label: "Бюджетный вариант",
+            description: "Подходит для гаражей, бытовок, хозблоков и других объектов, где важна оптимальная стоимость. Рекомендуем для большинства частных объектов."
+        },
+        {
+            value: "pur",
+            label: "Повышенная пожарная безопасность",
+            description: "Подходит для объектов с повышенными требованиями к пожарной безопасности."
+        },
+        {
+            value: "pir",
+            label: "Максимальное энергосбережение",
+            description: "Подходит для тёплых объектов и задач, где особенно важно снизить теплопотери."
+        }
     ];
 
+    // Режим использования помещения — новый понятный вопрос (Этап 5),
+    // заменяет собой прежний прямой технический выбор толщины панели.
+    // Толщина для Price Engine подбирается автоматически по режиму
+    // (см. deriveThicknessFromUsageMode) — формула расчёта не меняется,
+    // меняется только то, какое из уже существующих значений толщины
+    // подставляется.
+    var USAGE_MODE_OPTIONS = [
+        {
+            value: "seasonal",
+            label: "Летнее / техническое использование",
+            description: "Помещение не требует постоянного отопления. Подходит для хранения, техники, инвентаря и сезонного использования."
+        },
+        {
+            value: "year_round",
+            label: "Круглогодичное / тёплое использование",
+            description: "Помещение планируется регулярно использовать в течение всего года с поддержанием комфортной температуры."
+        }
+    ];
+
+    var INSTALLATION_OPTIONS = [
+        { value: "yes", label: "Да" },
+        { value: "no", label: "Нет" },
+        { value: "unknown", label: "Пока не знаю" }
+    ];
+
+    var DEADLINE_OPTIONS = [
+        { value: "asap", label: "В ближайшее время" },
+        { value: "within_month", label: "В течение месяца" },
+        { value: "1_3_months", label: "В течение 1–3 месяцев" },
+        { value: "more_3_months", label: "Позже" },
+        { value: "researching", label: "Пока сравниваю варианты" }
+    ];
+
+    var PROJECT_OPTIONS = [
+        { value: "yes", label: "Есть готовый проект" },
+        { value: "no", label: "Есть размеры, но проекта нет" },
+        { value: "in_progress", label: "Пока только идея / нужен предварительный расчёт" }
+    ];
+
+    // Толщина панели — используется ТОЛЬКО панельным калькулятором
+    // (Этап 2), его логика не меняется по этому ТЗ. Для строительства
+    // толщина теперь подбирается автоматически по режиму использования
+    // (см. deriveThicknessFromUsageMode), явный шаг выбора толщины для
+    // строительства убран из QUESTION_STEPS.
     var THICKNESS_OPTIONS = [
         { value: "50", label: "50 мм" },
         { value: "80", label: "80 мм" },
@@ -38,28 +110,24 @@
         { value: "unknown", label: "Не знаю" }
     ];
 
-    var INSTALLATION_OPTIONS = [
-        { value: "yes", label: "Да" },
-        { value: "no", label: "Нет" },
-        { value: "unknown", label: "Пока не знаю" }
+    /* ------------------------------------------------------------------
+       Справочники вариантов ответа — СЭНДВИЧ-ПАНЕЛИ (Этап 2-3)
+       ------------------------------------------------------------------ */
+
+    var PANEL_TYPE_OPTIONS = [
+        { value: "wall", label: "Стеновые панели" },
+        { value: "roof", label: "Кровельные панели" },
+        { value: "wall_and_roof", label: "Стеновые + кровельные" }
     ];
 
-    var DEADLINE_OPTIONS = [
-        { value: "asap", label: "Как можно скорее" },
-        { value: "within_month", label: "В течение месяца" },
-        { value: "1_3_months", label: "1-3 месяца" },
-        { value: "more_3_months", label: "Более 3 месяцев" },
-        { value: "researching", label: "Пока изучаю цены" }
-    ];
-
-    var PROJECT_OPTIONS = [
-        { value: "yes", label: "Да" },
-        { value: "no", label: "Нет" },
-        { value: "in_progress", label: "В разработке" }
+    var PANEL_INSULATION_OPTIONS = [
+        { value: "mineral_wool", label: "Минеральная вата" },
+        { value: "pir", label: "PIR" },
+        { value: "unknown", label: "Не знаю" }
     ];
 
     /* ------------------------------------------------------------------
-       Конфигурация шагов (8 вопросов + 1 финальный экран результата)
+       Конфигурация шагов
        ------------------------------------------------------------------ */
 
     var QUESTION_STEPS = [
@@ -75,17 +143,16 @@
             question: "Какой размер здания?"
         },
         {
-            key: "insulation",
-            type: "options",
-            question: "Какой утеплитель хотите использовать?",
-            options: INSULATION_OPTIONS,
-            hint: "Выберите «Не знаю» — поможем подобрать утеплитель под ваш объект."
+            key: "usageMode",
+            type: "described_cards",
+            question: "Как вы планируете использовать помещение?",
+            options: USAGE_MODE_OPTIONS
         },
         {
-            key: "thickness",
-            type: "options",
-            question: "Какая нужна толщина панели?",
-            options: THICKNESS_OPTIONS
+            key: "insulation",
+            type: "described_cards",
+            question: "Какой утеплитель подойдёт?",
+            options: INSULATION_OPTIONS
         },
         {
             key: "installation",
@@ -98,7 +165,7 @@
             type: "text",
             question: "Где будет объект?",
             label: "Город / населенный пункт",
-            hint: "MVP работает с Москвой и Московской областью."
+            hint: "Сейчас мы работаем с Москвой и Московской областью."
         },
         {
             key: "deadline",
@@ -117,6 +184,40 @@
     var RESULT_STEP = {
         key: "result",
         type: "result",
+        flow: "construction",
+        question: "Ваши параметры собраны"
+    };
+
+    var PANEL_QUESTION_STEPS = [
+        {
+            key: "panel_type",
+            type: "cards",
+            question: "Что вам нужно?",
+            options: PANEL_TYPE_OPTIONS
+        },
+        {
+            key: "insulation",
+            type: "options",
+            question: "Какой утеплитель?",
+            options: PANEL_INSULATION_OPTIONS
+        },
+        {
+            key: "thickness",
+            type: "options",
+            question: "Какая нужна толщина?",
+            options: THICKNESS_OPTIONS
+        },
+        {
+            key: "area",
+            type: "panel_area",
+            question: "Какой примерный объём (площадь)?"
+        }
+    ];
+
+    var PANEL_RESULT_STEP = {
+        key: "result",
+        type: "result",
+        flow: "panels",
         question: "Ваши параметры собраны"
     };
 
@@ -144,11 +245,12 @@
         { value: "unknown", label: "Не знаю" }
     ];
 
-    var ALL_STEPS = QUESTION_STEPS.concat([RESULT_STEP, CONTACT_STEP]);
-
     /* ------------------------------------------------------------------
-       Состояние калькулятора
+       Состояние
        ------------------------------------------------------------------ */
+
+    // activeFlow: null (сценарий ещё не выбран) | "construction" | "panels"
+    var activeFlow = null;
 
     var state = {
         object: null,
@@ -158,16 +260,26 @@
         area: null,
         areaMode: "manual", // 'manual' | 'approximate'
         approxArea: null,
+        usageMode: null, // 'seasonal' | 'year_round' — новый понятный вопрос
         insulation: null,
-        thickness: null,
+        thickness: null, // подбирается автоматически по usageMode для Price Engine
+        recommendedWallThickness: null, // для будущей структуры лида, не влияет на расчёт
+        recommendedRoofThickness: null, // для будущей структуры лида, не влияет на расчёт
         installation: null,
         city: null,
         deadline: null,
-        project: null
+        project: null,
+        smallAreaWarningShownFor: null // object, для которого уже показана подсказка о площади
     };
 
-    // Состояние контактной формы (PROMPT 6) хранится отдельно от
-    // состояния калькулятора, т.к. относится к другому этапу воронки.
+    var panelState = {
+        panel_type: null,
+        insulation: null,
+        thickness: null,
+        area: null
+    };
+
+    // Состояние контактной формы — общее для обоих сценариев.
     var contactState = {
         name: null,
         phone: null,
@@ -180,15 +292,14 @@
 
     // Последний успешный результат Price Engine — переиспользуется при
     // отправке лида и для краткой сводки на экране контактной формы,
-    // без повторного запроса к /api/price-estimate.
+    // без повторного запроса к соответствующему price-estimate.
     var lastPriceResult = null;
     var leadSubmitted = false;
+    var lastSubmittedLeadId = null;
+    var lastSubmittedName = null;
 
     // UTM-метки (PROMPT 7) — считываются один раз из URL при загрузке
-    // страницы и сохраняются в памяти на протяжении всего сценария
-    // калькулятора (весь путь калькулятор → результат → контакты
-    // происходит без перезагрузки страницы, поэтому достаточно
-    // прочитать URL один раз при инициализации).
+    // страницы и сохраняются в памяти на протяжении всего сценария.
     var utmParams = {
         utm_source: null,
         utm_medium: null,
@@ -198,6 +309,26 @@
     };
 
     var currentIndex = 0;
+
+    /* ------------------------------------------------------------------
+       Помощники активного сценария
+       ------------------------------------------------------------------ */
+
+    function getActiveState() {
+        return activeFlow === "panels" ? panelState : state;
+    }
+
+    function getActiveQuestionSteps() {
+        return activeFlow === "panels" ? PANEL_QUESTION_STEPS : QUESTION_STEPS;
+    }
+
+    function getActiveResultStep() {
+        return activeFlow === "panels" ? PANEL_RESULT_STEP : RESULT_STEP;
+    }
+
+    function getActiveAllSteps() {
+        return getActiveQuestionSteps().concat([getActiveResultStep(), CONTACT_STEP]);
+    }
 
     /* ------------------------------------------------------------------
        Утилиты
@@ -266,6 +397,24 @@
             return html;
         }
 
+        if (step.type === "described_cards") {
+            html += '<div class="calc-described-cards" role="group" aria-label="' +
+                escapeHtml(step.question) + '">' +
+                step.options
+                    .map(function (o) {
+                        return (
+                            '<button type="button" class="calc-described-card" data-value="' + o.value +
+                            '" aria-pressed="false">' +
+                                '<span class="calc-described-card__title">' + escapeHtml(o.label) + "</span>" +
+                                '<span class="calc-described-card__description">' + escapeHtml(o.description) + "</span>" +
+                            "</button>"
+                        );
+                    })
+                    .join("") +
+                "</div>";
+            return html;
+        }
+
         if (step.type === "options") {
             html += '<div class="calc-options" role="group" aria-label="' +
                 escapeHtml(step.question) + '">' +
@@ -330,55 +479,80 @@
             return html;
         }
 
+        if (step.type === "panel_area") {
+            html += '<div class="calc-field">' +
+                '<label for="calc-panel-area">Примерная площадь, м²</label>' +
+                '<input type="number" id="calc-panel-area" inputmode="decimal" step="0.1" min="0">' +
+                '<p class="calc-field-error" id="calc-error-panel-area"></p>' +
+                "</div>" +
+                '<p class="calc-step__hint">Не знаете точную площадь? Укажите примерное значение — расчёт всё равно будет ориентировочным.</p>';
+            return html;
+        }
+
         if (step.type === "result") {
+            var isPanels = step.flow === "panels";
+            var introText = isPanels
+                ? "Предварительная оценка стоимости сэндвич-панелей как материала. Это не оферта и не точная коммерческая цена."
+                : "Предварительная оценка рыночной стоимости объекта из сэндвич-панелей. Это не строительная смета.";
+            var ctaTitle = isPanels ? "Хотите получить расчёт от поставщиков?" : "Хотите получить предложения от компаний?";
+            var ctaText = isPanels
+                ? "Передадим заявку компаниям, которые работают с поставкой сэндвич-панелей."
+                : "Подберём компании, которые работают с вашим типом объекта и параметрами.";
+            var ctaButtonText = isPanels ? "Получить расчёт от поставщиков" : "Получить предложения от подходящих компаний";
+
             html +=
-                '<p class="calc-result__intro">' +
-                    "Предварительная оценка рыночной стоимости объекта из сэндвич-панелей. " +
-                    "Это не строительная смета." +
-                "</p>" +
+                '<p class="calc-result__intro">' + escapeHtml(introText) + "</p>" +
                 '<dl class="calc-summary" id="calc-summary"></dl>' +
                 '<div class="calc-price" id="calc-price" aria-live="polite">' +
                     '<p class="calc-price__label">Предварительная стоимость</p>' +
                     '<div class="calc-price__body" id="calc-price-body">' +
                         '<p class="calc-price__loading">Считаем предварительную стоимость…</p>' +
                     "</div>" +
-                "</div>" +
-                '<details class="calc-scope">' +
-                    "<summary>Что входит в расчёт и что нет</summary>" +
-                    '<div class="calc-scope__columns">' +
-                        '<div class="calc-scope__col">' +
-                            '<p class="calc-scope__heading">В расчёт ориентировочно входят:</p>' +
-                            "<ul>" +
-                                "<li>металлокаркас</li>" +
-                                "<li>стеновые панели</li>" +
-                                "<li>кровельные панели</li>" +
-                                "<li>базовые комплектующие</li>" +
-                                "<li>стандартный монтаж</li>" +
-                            "</ul>" +
+                "</div>";
+
+            if (isPanels) {
+                html += '<p class="calc-step__hint">' +
+                    "Точную стоимость и условия поставки подтвердит поставщик." +
+                "</p>";
+            } else {
+                html +=
+                    '<details class="calc-scope">' +
+                        "<summary>Что входит в расчёт и что нет</summary>" +
+                        '<div class="calc-scope__columns">' +
+                            '<div class="calc-scope__col">' +
+                                '<p class="calc-scope__heading">В расчёт ориентировочно входят:</p>' +
+                                "<ul>" +
+                                    "<li>металлокаркас</li>" +
+                                    "<li>стеновые панели</li>" +
+                                    "<li>кровельные панели</li>" +
+                                    "<li>базовые комплектующие</li>" +
+                                    "<li>стандартный монтаж</li>" +
+                                "</ul>" +
+                            "</div>" +
+                            '<div class="calc-scope__col">' +
+                                '<p class="calc-scope__heading">Не входят:</p>' +
+                                "<ul>" +
+                                    "<li>фундамент</li>" +
+                                    "<li>инженерные коммуникации</li>" +
+                                    "<li>оборудование</li>" +
+                                    "<li>внутренняя отделка</li>" +
+                                    "<li>нестандартные ворота</li>" +
+                                    "<li>кран-балки</li>" +
+                                    "<li>холодильное оборудование</li>" +
+                                    "<li>благоустройство</li>" +
+                                    "<li>нестандартные работы</li>" +
+                                "</ul>" +
+                            "</div>" +
                         "</div>" +
-                        '<div class="calc-scope__col">' +
-                            '<p class="calc-scope__heading">Не входят:</p>' +
-                            "<ul>" +
-                                "<li>фундамент</li>" +
-                                "<li>инженерные коммуникации</li>" +
-                                "<li>оборудование</li>" +
-                                "<li>внутренняя отделка</li>" +
-                                "<li>нестандартные ворота</li>" +
-                                "<li>кран-балки</li>" +
-                                "<li>холодильное оборудование</li>" +
-                                "<li>благоустройство</li>" +
-                                "<li>нестандартные работы</li>" +
-                            "</ul>" +
-                        "</div>" +
-                    "</div>" +
-                "</details>" +
+                    "</details>";
+            }
+
+            html +=
                 '<div class="calc-next-step">' +
-                    '<h3 class="calc-next-step__title">Хотите сравнить реальные предложения?</h3>' +
-                    '<p class="calc-next-step__text">' +
-                        "Подберем производителей, которые работают с вашим типом объекта и параметрами." +
-                    "</p>" +
+                    '<h3 class="calc-next-step__title">' + escapeHtml(ctaTitle) + "</h3>" +
+                    '<p class="calc-next-step__text">' + escapeHtml(ctaText) + "</p>" +
                     '<button type="button" class="button-primary calc-next-step__cta" id="calc-get-offers">' +
-                        "Получить предложения от производителей" +
+                        escapeHtml(ctaButtonText) +
                     "</button>" +
                 "</div>";
             return html;
@@ -417,11 +591,11 @@
                     "</div>" +
                     '<label class="calc-checkbox calc-checkbox--consent">' +
                         '<input type="checkbox" id="calc-consent-personal">' +
-                        '<span>Я даю согласие на <a href="/privacy" target="_blank" rel="noopener">обработку персональных данных</a> в соответствии с <a href="/consent" target="_blank" rel="noopener">условиями согласия</a>.</span>' +
+                        '<span>Я ознакомлен(а) и согласен(на) на <a href="/consent" target="_blank" rel="noopener">обработку персональных данных</a>.</span>' +
                     "</label>" +
                     '<label class="calc-checkbox calc-checkbox--consent">' +
                         '<input type="checkbox" id="calc-consent-share">' +
-                        '<span>Я согласен на передачу данных производителям и подрядчикам для связи со мной и подготовки предложения (<a href="/terms" target="_blank" rel="noopener">пользовательское соглашение</a>).</span>' +
+                        '<span>Я согласен(на) на предоставление моих персональных данных потенциальным производителям, поставщикам и подрядчикам для обработки моей заявки и подготовки предложений (<a href="/consent-transfer" target="_blank" rel="noopener">подробнее</a>).</span>' +
                     "</label>" +
                     '<p class="calculator__error" id="calc-contact-error" role="alert" aria-live="polite"></p>' +
                     '<button type="button" class="button-primary calc-contact__submit" id="calc-contact-submit">Отправить заявку</button>' +
@@ -433,11 +607,12 @@
         return html;
     }
 
-    function buildSteps() {
+    function buildStepsForFlow() {
         var container = document.getElementById("calc-steps");
         if (!container) return;
+        container.innerHTML = "";
 
-        ALL_STEPS.forEach(function (step, index) {
+        getActiveAllSteps().forEach(function (step, index) {
             var el = document.createElement("div");
             el.className = "calc-step";
             el.id = "calc-step-" + step.key;
@@ -459,7 +634,22 @@
             el.textContent = "";
         });
         var generalError = document.getElementById("calc-step-error");
-        if (generalError) generalError.textContent = "";
+        if (generalError) {
+            generalError.textContent = "";
+            generalError.classList.remove("calculator__error--advisory");
+        }
+    }
+
+    function showSizeAdvisory(message) {
+        // Мягкая, не блокирующая подсказка (не ошибка) — переиспользует
+        // общий элемент ошибки шага с визуальным модификатором. Расчёт
+        // при этом не запрещается: повторное нажатие «Далее» продолжает
+        // сценарий с уже выбранным объектом.
+        var el = document.getElementById("calc-step-error");
+        if (el) {
+            el.textContent = message;
+            el.classList.add("calculator__error--advisory");
+        }
     }
 
     function setFieldError(fieldKey, message) {
@@ -525,15 +715,46 @@
             }
         }
 
+        if (valid) {
+            var smallAreaSensitiveObjects = ["hangar", "warehouse", "production"];
+            var needsAdvisory =
+                smallAreaSensitiveObjects.indexOf(state.object) !== -1 &&
+                state.area !== null &&
+                state.area < 50;
+
+            if (needsAdvisory && state.smallAreaWarningShownFor !== state.object) {
+                showSizeAdvisory(
+                    "Для объектов типа ангара, склада или цеха обычно рассматривают площадь " +
+                    "от 50 м². Возможно, для вашей задачи больше подойдёт гараж, хозблок или " +
+                    "бытовка — вы можете вернуться назад и изменить тип объекта. Либо просто " +
+                    "нажмите «Далее» ещё раз, чтобы продолжить с выбранным объектом."
+                );
+                state.smallAreaWarningShownFor = state.object;
+                return false;
+            }
+        }
+
         return valid;
     }
 
+    function validatePanelAreaStep() {
+        var input = document.getElementById("calc-panel-area");
+        var value = input ? parsePositiveNumber(input.value) : null;
+        if (value === null) {
+            setFieldError("panel-area", "Введите примерную площадь — положительное число.");
+            return false;
+        }
+        panelState.area = value;
+        return true;
+    }
+
     function validateCurrentStep() {
-        var step = ALL_STEPS[currentIndex];
+        var step = getActiveAllSteps()[currentIndex];
+        var activeState = getActiveState();
         clearStepErrors();
 
-        if (step.type === "cards" || step.type === "options") {
-            if (!state[step.key]) {
+        if (step.type === "cards" || step.type === "options" || step.type === "described_cards") {
+            if (!activeState[step.key]) {
                 showGeneralError("Пожалуйста, выберите один из вариантов.");
                 return false;
             }
@@ -547,12 +768,16 @@
                 setFieldError(step.key, "Пожалуйста, заполните это поле.");
                 return false;
             }
-            state[step.key] = value;
+            activeState[step.key] = value;
             return true;
         }
 
         if (step.type === "size") {
             return validateSizeStep();
+        }
+
+        if (step.type === "panel_area") {
+            return validatePanelAreaStep();
         }
 
         return true;
@@ -563,7 +788,7 @@
        ------------------------------------------------------------------ */
 
     function updateProgress() {
-        var totalQuestions = QUESTION_STEPS.length;
+        var totalQuestions = getActiveQuestionSteps().length;
         var fill = document.getElementById("calc-progress-fill");
         var label = document.getElementById("calc-progress-label");
         if (!fill || !label) return;
@@ -586,23 +811,22 @@
         var nextBtn = document.getElementById("calc-next");
         if (!backBtn || !nextBtn) return;
 
+        var totalQuestions = getActiveQuestionSteps().length;
+
         backBtn.hidden = currentIndex === 0;
 
-        if (currentIndex >= QUESTION_STEPS.length) {
+        if (currentIndex >= totalQuestions) {
             // экран результата и контактная форма используют
             // собственные кнопки, а не общую кнопку "Далее".
             nextBtn.hidden = true;
         } else {
             nextBtn.hidden = false;
             nextBtn.textContent =
-                currentIndex === QUESTION_STEPS.length - 1 ? "Показать результат" : "Далее";
+                currentIndex === totalQuestions - 1 ? "Показать результат" : "Далее";
         }
     }
 
-    function renderSummary() {
-        var summary = document.getElementById("calc-summary");
-        if (!summary) return;
-
+    function buildConstructionSummaryRows() {
         var rows = [];
         rows.push(["Объект", getOptionLabel(OBJECT_OPTIONS, state.object)]);
 
@@ -618,12 +842,29 @@
             ]);
         }
 
+        rows.push(["Режим использования", getOptionLabel(USAGE_MODE_OPTIONS, state.usageMode)]);
         rows.push(["Утеплитель", getOptionLabel(INSULATION_OPTIONS, state.insulation)]);
-        rows.push(["Толщина", getOptionLabel(THICKNESS_OPTIONS, state.thickness)]);
         rows.push(["Монтаж", getOptionLabel(INSTALLATION_OPTIONS, state.installation)]);
         rows.push(["Город", state.city || "—"]);
         rows.push(["Срок", getOptionLabel(DEADLINE_OPTIONS, state.deadline)]);
         rows.push(["Проект", getOptionLabel(PROJECT_OPTIONS, state.project)]);
+        return rows;
+    }
+
+    function buildPanelSummaryRows() {
+        return [
+            ["Тип панели", getOptionLabel(PANEL_TYPE_OPTIONS, panelState.panel_type)],
+            ["Площадь", formatNumber(panelState.area) + " м²"],
+            ["Утеплитель", getOptionLabel(PANEL_INSULATION_OPTIONS, panelState.insulation)],
+            ["Толщина", getOptionLabel(THICKNESS_OPTIONS, panelState.thickness)]
+        ];
+    }
+
+    function renderSummary() {
+        var summary = document.getElementById("calc-summary");
+        if (!summary) return;
+
+        var rows = activeFlow === "panels" ? buildPanelSummaryRows() : buildConstructionSummaryRows();
 
         summary.innerHTML = rows
             .map(function (row) {
@@ -639,7 +880,27 @@
        Price Engine — запрос расчёта стоимости
        ------------------------------------------------------------------ */
 
+    // Толщина для Price Engine подбирается автоматически по режиму
+    // использования (Этап 5) — формула и коэффициенты Price Engine не
+    // меняются, подставляется одно из уже существующих значений
+    // толщины ("50"/"100"). Отдельно (только для будущей структуры
+    // лида, не для расчёта) запоминаются рекомендуемые толщины стен и
+    // кровли — Price Engine работает с одним значением толщины на
+    // объект и не поддерживает раздельный расчёт "стены/кровля".
+    function applyUsageModeToThickness() {
+        if (state.usageMode === "year_round") {
+            state.thickness = "100";
+            state.recommendedWallThickness = "100";
+            state.recommendedRoofThickness = "120";
+        } else if (state.usageMode === "seasonal") {
+            state.thickness = "50";
+            state.recommendedWallThickness = "50";
+            state.recommendedRoofThickness = "80";
+        }
+    }
+
     function buildPriceEnginePayload() {
+        applyUsageModeToThickness();
         return {
             object: state.object,
             area: state.area,
@@ -648,6 +909,31 @@
             thickness: state.thickness,
             installation: state.installation,
             city: state.city
+        };
+    }
+
+    // Расширенный payload калькулятора для /api/leads (только
+    // строительство) — дополняет обычный payload Price Engine
+    // метаданными об источнике параметров (Этап 5, п.10/14). Backend
+    // читает эти поля через .get() и попросту игнорирует их при
+    // расчёте — на формулу и на Google Sheets/Telegram они не влияют,
+    // только на внутреннюю структуру объекта лида.
+    function buildConstructionLeadCalculatorPayload() {
+        var payload = buildPriceEnginePayload();
+        payload.usage_mode = state.usageMode;
+        payload.insulation_source = "user_selected";
+        payload.thickness_source = "auto_selected";
+        payload.recommended_wall_thickness = state.recommendedWallThickness;
+        payload.recommended_roof_thickness = state.recommendedRoofThickness;
+        return payload;
+    }
+
+    function buildPanelPriceEnginePayload() {
+        return {
+            panel_type: panelState.panel_type,
+            area: panelState.area,
+            insulation: panelState.insulation,
+            thickness: panelState.thickness
         };
     }
 
@@ -694,9 +980,11 @@
     function fetchPriceEstimate() {
         renderPriceLoading();
 
-        var payload = buildPriceEnginePayload();
+        var isPanels = activeFlow === "panels";
+        var endpoint = isPanels ? "/api/panel-price-estimate" : "/api/price-estimate";
+        var payload = isPanels ? buildPanelPriceEnginePayload() : buildPriceEnginePayload();
 
-        fetch("/api/price-estimate", {
+        fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -722,11 +1010,8 @@
     }
 
     /* ------------------------------------------------------------------
-       Контактная форма и отправка лида (PROMPT 6)
+       Контактная форма и отправка лида
        ------------------------------------------------------------------ */
-
-    var lastSubmittedLeadId = null;
-    var lastSubmittedName = null;
 
     function updateCompanyFieldVisibility() {
         var field = document.getElementById("calc-contact-company-field");
@@ -736,30 +1021,42 @@
 
     function getEntrySourceLabel() {
         var section = document.getElementById("calculator");
-        var preset = section ? section.getAttribute("data-preset-object") : "";
-        var labels = {
+        var presetObject = section ? section.getAttribute("data-preset-object") : "";
+        var presetFlow = section ? section.getAttribute("data-preset-flow") : "";
+        var objectLabels = {
             garage: "Гараж (рекламный вход)",
             sto: "СТО (рекламный вход)",
-            warehouse: "Склад (рекламный вход)"
+            warehouse: "Склад (рекламный вход)",
+            hangar: "Ангар (рекламный вход)"
         };
-        return labels[preset] || "Прямой заход";
+        if (presetObject && objectLabels[presetObject]) return objectLabels[presetObject];
+        if (presetFlow === "panels") return "Сэндвич-панели (рекламный вход)";
+        if (presetFlow === "construction") return "Быстровозводимые здания (рекламный вход)";
+        return "Прямой заход";
     }
 
     function renderContactRecap() {
         var recap = document.getElementById("calc-contact-recap");
         if (!recap) return;
 
-        var objectLabel = getOptionLabel(OBJECT_OPTIONS, state.object);
-        var areaText = state.area !== null ? formatNumber(state.area) + " м²" : "—";
         var priceText = lastPriceResult
             ? lastPriceResult.price_min_formatted + " – " + lastPriceResult.price_max_formatted
             : "предварительная стоимость рассчитывается на предыдущем шаге";
 
+        var summaryLine;
+        if (activeFlow === "panels") {
+            var panelTypeLabel = getOptionLabel(PANEL_TYPE_OPTIONS, panelState.panel_type);
+            var panelAreaText = panelState.area !== null ? formatNumber(panelState.area) + " м²" : "—";
+            summaryLine = panelTypeLabel + " · " + panelAreaText + " · " + priceText;
+        } else {
+            var objectLabel = getOptionLabel(OBJECT_OPTIONS, state.object);
+            var areaText = state.area !== null ? formatNumber(state.area) + " м²" : "—";
+            summaryLine = objectLabel + " · " + areaText + " · " + priceText;
+        }
+
         recap.innerHTML =
             '<p class="calc-contact-recap__title">Ваш расчёт</p>' +
-            '<p class="calc-contact-recap__text">' +
-                escapeHtml(objectLabel) + " · " + escapeHtml(areaText) + " · " + escapeHtml(priceText) +
-            "</p>";
+            '<p class="calc-contact-recap__text">' + escapeHtml(summaryLine) + "</p>";
     }
 
     function clearContactErrors() {
@@ -820,8 +1117,8 @@
                 '<p class="calc-contact-success__text">Номер вашей заявки: <strong>' +
                     escapeHtml(leadId) + "</strong>.</p>" +
                 '<p class="calc-contact-success__text">' +
-                    "Мы свяжемся с вами в ближайшее время, чтобы уточнить детали и подобрать " +
-                    "подходящие предложения от производителей." +
+                    "Мы передадим вашу заявку компаниям, которые подходят под параметры вашего " +
+                    "запроса. Подходящие компании смогут связаться с вами напрямую." +
                 "</p>";
         }
     }
@@ -851,6 +1148,8 @@
             submitBtn.textContent = "Отправляем…";
         }
 
+        var isPanels = activeFlow === "panels";
+
         var payload = {
             contact: {
                 name: contactState.name,
@@ -861,9 +1160,10 @@
                 consent_personal_data: contactState.consentPersonalData === true,
                 consent_share_with_suppliers: contactState.consentShareWithSuppliers === true
             },
-            calculator: buildPriceEnginePayload(),
+            calculator: isPanels ? buildPanelPriceEnginePayload() : buildConstructionLeadCalculatorPayload(),
             source: getEntrySourceLabel(),
-            utm: utmParams
+            utm: utmParams,
+            lead_type: isPanels ? "panels" : "construction"
         };
 
         fetch("/api/leads", {
@@ -908,7 +1208,8 @@
     }
 
     function goToContactStep() {
-        currentIndex = ALL_STEPS.length - 1;
+        var allSteps = getActiveAllSteps();
+        currentIndex = allSteps.length - 1;
         showStep(currentIndex);
         renderContactRecap();
         if (leadSubmitted) {
@@ -965,7 +1266,8 @@
     }
 
     function showStep(index) {
-        ALL_STEPS.forEach(function (step, i) {
+        var allSteps = getActiveAllSteps();
+        allSteps.forEach(function (step, i) {
             var el = document.getElementById("calc-step-" + step.key);
             if (!el) return;
             if (i === index) {
@@ -984,7 +1286,7 @@
         updateProgress();
         updateNav();
 
-        if (ALL_STEPS[index].type === "result") {
+        if (allSteps[index].type === "result") {
             renderSummary();
             fetchPriceEstimate();
         }
@@ -1009,7 +1311,8 @@
         if (nextBtn) {
             nextBtn.addEventListener("click", function () {
                 if (!validateCurrentStep()) return;
-                if (currentIndex < ALL_STEPS.length - 1) {
+                var allSteps = getActiveAllSteps();
+                if (currentIndex < allSteps.length - 1) {
                     currentIndex += 1;
                     showStep(currentIndex);
                     scrollCalculatorIntoView();
@@ -1032,8 +1335,11 @@
         var container = document.getElementById("calc-steps");
         if (!container) return;
 
+        // Делегирование событий на постоянном контейнере — переживает
+        // пересоздание внутреннего содержимого при смене сценария
+        // (buildStepsForFlow полностью перестраивает #calc-steps).
         container.addEventListener("click", function (event) {
-            var btn = event.target.closest(".calc-option, .calc-card");
+            var btn = event.target.closest(".calc-option, .calc-card, .calc-described-card");
             if (!btn) return;
 
             var stepEl = btn.closest(".calc-step");
@@ -1050,10 +1356,10 @@
                 }
             } else {
                 var key = stepEl.getAttribute("data-key");
-                state[key] = value;
+                getActiveState()[key] = value;
             }
 
-            var siblings = scope.querySelectorAll(".calc-option, .calc-card");
+            var siblings = scope.querySelectorAll(".calc-option, .calc-card, .calc-described-card");
             siblings.forEach(function (sib) {
                 var selected = sib === btn;
                 sib.classList.toggle("is-selected", selected);
@@ -1126,6 +1432,63 @@
     }
 
     /* ------------------------------------------------------------------
+       Выбор сценария (Этап 3)
+       ------------------------------------------------------------------ */
+
+    function startFlow(flow) {
+        activeFlow = flow;
+        currentIndex = 0;
+        leadSubmitted = false;
+        lastPriceResult = null;
+
+        var chooser = document.getElementById("calc-flow-chooser");
+        if (chooser) chooser.hidden = true;
+        var progress = document.getElementById("calc-progress");
+        if (progress) progress.hidden = false;
+        var nav = document.getElementById("calc-nav");
+        if (nav) nav.hidden = false;
+
+        buildStepsForFlow();
+
+        if (flow === "construction") {
+            wireSizeStep();
+            wireCityInput();
+            applyPresetObject();
+        }
+        wireContactStep();
+
+        showStep(0);
+    }
+
+    function wireFlowChoosers() {
+        var heroCtaPanels = document.getElementById("hero-cta-panels");
+        var heroCtaConstruction = document.getElementById("hero-cta-construction");
+        var calcChoosePanels = document.getElementById("calc-choose-panels");
+        var calcChooseConstruction = document.getElementById("calc-choose-construction");
+
+        function startAndScroll(flow) {
+            startFlow(flow);
+            var calcSection = document.getElementById("calculator");
+            if (calcSection) {
+                calcSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        }
+
+        if (heroCtaPanels) {
+            heroCtaPanels.addEventListener("click", function () { startAndScroll("panels"); });
+        }
+        if (heroCtaConstruction) {
+            heroCtaConstruction.addEventListener("click", function () { startAndScroll("construction"); });
+        }
+        if (calcChoosePanels) {
+            calcChoosePanels.addEventListener("click", function () { startFlow("panels"); });
+        }
+        if (calcChooseConstruction) {
+            calcChooseConstruction.addEventListener("click", function () { startFlow("construction"); });
+        }
+    }
+
+    /* ------------------------------------------------------------------
        UTM-метки (PROMPT 7)
        ------------------------------------------------------------------ */
 
@@ -1152,14 +1515,17 @@
         if (!section) return;
 
         parseUtmParams();
-        buildSteps();
         wireNav();
         wireOptionSelection();
-        wireSizeStep();
-        wireCityInput();
-        wireContactStep();
-        applyPresetObject();
-        showStep(0);
+        wireFlowChoosers();
+
+        var presetFlow = section.getAttribute("data-preset-flow");
+        if (presetFlow === "construction" || presetFlow === "panels") {
+            startFlow(presetFlow);
+        }
+        // Иначе остаётся видимым #calc-flow-chooser — ждём выбора
+        // сценария пользователем (через Hero-карточки или кнопки внутри
+        // калькулятора).
     }
 
     if (document.readyState === "loading") {
