@@ -36,6 +36,7 @@ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID. Логика отправки проте�
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -266,6 +267,18 @@ def _safe_error_description(error):
     return raw.decode("utf-8", errors="replace")[:200]
 
 
+def _redact_token(text, token):
+    """
+    Подстраховка: если токен каким-то образом попадёт в текст
+    исключения (например, через URL внутри объекта ошибки), заменить
+    его на "***" перед логированием. В норме этого не происходит, но
+    так безопаснее.
+    """
+    if not text or not token:
+        return text
+    return text.replace(token, "***")
+
+
 def send_lead_notification(record):
     """
     Отправить уведомление о новом лиде менеджеру в Telegram.
@@ -276,6 +289,11 @@ def send_lead_notification(record):
     ошибку API. Токен никогда не логируется и не попадает в текст
     исключения, которое могло бы куда-то всплыть — в логи попадает
     только HTTP-статус и безопасное описание ошибки от Telegram.
+
+    При сетевой ошибке (urllib.error.URLError — например, кратковременное
+    "Cannot assign requested address") делается до 2 попыток отправки
+    с небольшой паузой между ними, прежде чем сдаться: такие ошибки
+    обычно временные и не связаны с содержимым конкретного лида.
     """
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -283,40 +301,55 @@ def send_lead_notification(record):
     if not token or not chat_id:
         return {"sent": False, "reason": "not_configured"}
 
-    try:
-        text = build_lead_notification_text(record)
-        url = TELEGRAM_API_URL_TEMPLATE.format(token=token)
-        body = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
-        http_request = urllib.request.Request(
-            url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(http_request, timeout=TELEGRAM_TIMEOUT_SECONDS) as response:
-            status = getattr(response, "status", None) or response.getcode()
-            if 200 <= status < 300:
-                return {"sent": True, "reason": None}
-            logger.warning("Telegram sendMessage: неожиданный статус %s без исключения.", status)
-            return {"sent": False, "reason": "http_error_{}".format(status)}
-    except urllib.error.HTTPError as error:
-        description = _safe_error_description(error)
-        logger.warning(
-            "Telegram sendMessage не доставлено (lead_id=%s): HTTP %s — %s",
-            record.get("lead_id"), error.code, description,
-        )
-        return {"sent": False, "reason": "http_error_{}".format(error.code)}
-    except urllib.error.URLError as error:
-        logger.warning(
-            "Telegram sendMessage: сетевая ошибка (lead_id=%s) — %s",
-            record.get("lead_id"), getattr(error, "reason", error),
-        )
-        return {"sent": False, "reason": "network_error"}
-    except Exception:
-        # Никогда не поднимаем исключение выше и не логируем токен
-        # или тело ошибки — только факт неудачи.
-        logger.warning(
-            "Telegram sendMessage: непредвиденная ошибка при отправке (lead_id=%s).",
-            record.get("lead_id"),
-        )
-        return {"sent": False, "reason": "request_failed"}
+    max_attempts = 2
+    retry_delay_seconds = 1.5
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            text = build_lead_notification_text(record)
+            url = TELEGRAM_API_URL_TEMPLATE.format(token=token)
+            body = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+            http_request = urllib.request.Request(
+                url,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(http_request, timeout=TELEGRAM_TIMEOUT_SECONDS) as response:
+                status = getattr(response, "status", None) or response.getcode()
+                if 200 <= status < 300:
+                    return {"sent": True, "reason": None}
+                logger.warning("Telegram sendMessage: неожиданный статус %s без исключения.", status)
+                return {"sent": False, "reason": "http_error_{}".format(status)}
+        except urllib.error.HTTPError as error:
+            description = _safe_error_description(error)
+            logger.warning(
+                "Telegram sendMessage не доставлено (lead_id=%s): HTTP %s — %s",
+                record.get("lead_id"), error.code, description,
+            )
+            return {"sent": False, "reason": "http_error_{}".format(error.code)}
+        except urllib.error.URLError as error:
+            reason = getattr(error, "reason", error)
+            is_last_attempt = attempt == max_attempts
+            logger.warning(
+                "Telegram sendMessage: сетевая ошибка (lead_id=%s, попытка %s/%s) — %s",
+                record.get("lead_id"), attempt, max_attempts, reason,
+            )
+            if is_last_attempt:
+                return {"sent": False, "reason": "network_error"}
+            time.sleep(retry_delay_seconds)
+            continue
+        except Exception as error:
+            # Никогда не поднимаем исключение выше и не логируем токен —
+            # но теперь сохраняем тип и текст самой ошибки (токен из
+            # текста на всякий случай вычищен), чтобы при следующем
+            # сбое причина была видна в логах, а не терялась за общей
+            # фразой без деталей.
+            safe_message = _redact_token(str(error), token)
+            logger.warning(
+                "Telegram sendMessage: непредвиденная ошибка при отправке (lead_id=%s): %s: %s",
+                record.get("lead_id"), type(error).__name__, safe_message,
+            )
+            return {"sent": False, "reason": "request_failed"}
+
+    return {"sent": False, "reason": "request_failed"}
