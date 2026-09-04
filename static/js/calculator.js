@@ -1261,6 +1261,23 @@
         var formWrapper = document.getElementById("calc-contact-form-wrapper");
         var successView = document.getElementById("calc-contact-success");
         if (formWrapper) formWrapper.hidden = true;
+
+        // Финальный экран успешной отправки не должен показывать заголовок
+        // шага контактной формы ("Оставьте контакты..."), индикатор
+        // прогресса (подпись "КОНТАКТЫ") и кнопку "Назад" — они относятся
+        // к состоянию "форма ещё заполняется" и не актуальны, когда
+        // заявка уже отправлена. Во время самого заполнения формы (до
+        // отправки) эти элементы по-прежнему показываются как раньше —
+        // здесь они скрываются только в момент перехода к успеху.
+        var stepTitle = document.querySelector("#calc-step-contact .calc-step__question");
+        if (stepTitle) stepTitle.hidden = true;
+
+        var progress = document.getElementById("calc-progress");
+        if (progress) progress.hidden = true;
+
+        var nav = document.getElementById("calc-nav");
+        if (nav) nav.hidden = true;
+
         if (successView) {
             successView.hidden = false;
             successView.innerHTML =
