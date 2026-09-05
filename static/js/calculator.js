@@ -305,7 +305,7 @@
     var CONTACT_STEP = {
         key: "contact",
         type: "contact",
-        question: "Оставьте контакты, чтобы получить предложения"
+        question: "Оставьте контакты, чтобы узнать точную стоимость"
     };
 
     // Master ТЗ §39: "Кто вы?"
@@ -591,11 +591,11 @@
             var introText = isPanels
                 ? "Предварительная оценка стоимости сэндвич-панелей как материала. Это не оферта и не точная коммерческая цена."
                 : "Предварительная оценка рыночной стоимости объекта из сэндвич-панелей. Это не строительная смета.";
-            var ctaTitle = isPanels ? "Хотите получить расчёт от поставщиков?" : "Хотите получить предложения от компаний?";
+            var ctaTitle = "Хотите получить предложения от компаний?";
             var ctaText = isPanels
                 ? "Передадим заявку компаниям, которые работают с поставкой сэндвич-панелей."
                 : "Подберём компании, которые работают с вашим типом объекта и параметрами.";
-            var ctaButtonText = isPanels ? "Получить расчёт от поставщиков" : "Получить предложения от подходящих компаний";
+            var ctaButtonText = "Получить точный расчёт от компаний";
 
             html +=
                 '<p class="calc-result__intro">' + escapeHtml(introText) + "</p>" +
@@ -609,7 +609,7 @@
 
             if (isPanels) {
                 html += '<p class="calc-step__hint">' +
-                    "Точную стоимость и условия поставки подтвердит поставщик." +
+                    "Точную стоимость и условия поставки подтвердит компания." +
                 "</p>";
             } else {
                 html +=
@@ -658,6 +658,7 @@
         if (step.type === "contact") {
             html +=
                 '<div class="calc-contact-recap" id="calc-contact-recap"></div>' +
+                '<p class="calc-contact-subtitle">Мы передадим вашу заявку подходящим компаниям — они свяжутся с вами, чтобы назвать точную стоимость.</p>' +
                 '<div id="calc-contact-form-wrapper">' +
                     '<div class="calc-field">' +
                         '<label for="calc-contact-name">Имя</label>' +
@@ -692,10 +693,10 @@
                     "</label>" +
                     '<label class="calc-checkbox calc-checkbox--consent">' +
                         '<input type="checkbox" id="calc-consent-share">' +
-                        '<span>Я согласен(на) на предоставление моих персональных данных потенциальным производителям, поставщикам и подрядчикам для обработки моей заявки и подготовки предложений (<a href="/consent-transfer" target="_blank" rel="noopener">подробнее</a>).</span>' +
+                        '<span>Разрешаю передать данные компаниям для подготовки предложений (<a href="/consent-transfer" target="_blank" rel="noopener">подробнее</a>).</span>' +
                     "</label>" +
                     '<p class="calculator__error" id="calc-contact-error" role="alert" aria-live="polite"></p>' +
-                    '<button type="button" class="button-primary calc-contact__submit" id="calc-contact-submit">Отправить заявку</button>' +
+                    '<button type="button" class="button-primary calc-contact__submit" id="calc-contact-submit">Получить точный расчёт от компаний</button>' +
                 "</div>" +
                 '<div class="calc-contact-success" id="calc-contact-success" hidden></div>';
             return html;
@@ -1288,6 +1289,9 @@
                 '<p class="calc-contact-success__text">' +
                     "Мы передадим вашу заявку компаниям, которые подходят под параметры вашего " +
                     "запроса. Подходящие компании смогут связаться с вами напрямую." +
+                "</p>" +
+                '<p class="calc-contact-success__text">' +
+                    "Обычно первые компании отвечают в течение 1–2 дней." +
                 "</p>";
         }
     }
@@ -1364,7 +1368,7 @@
                     if (general) general.textContent = message;
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = "Отправить заявку";
+                        submitBtn.textContent = "Получить точный расчёт от компаний";
                     }
                 }
             })
@@ -1376,7 +1380,7 @@
                 }
                 if (submitBtn) {
                     submitBtn.disabled = false;
-                    submitBtn.textContent = "Отправить заявку";
+                    submitBtn.textContent = "Получить точный расчёт от компаний";
                 }
             });
     }
