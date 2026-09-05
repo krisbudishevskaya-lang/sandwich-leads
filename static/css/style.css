@@ -342,7 +342,18 @@ h2 {
 .scenario-card__text {
     color: var(--color-text-muted);
     font-size: 0.92rem;
+    line-height: 1.4;
     margin-bottom: 8px;
+}
+
+@media (min-width: 760px) {
+    .scenario-card__text {
+        /* Резервируем высоту под 3 строки — у одной карточки текст
+           умещается в 2 строки, у другой в 3; без этого кнопка и
+           disclaimer под ней оказываются на разной высоте между
+           карточками. */
+        min-height: calc(3 * 0.92rem * 1.4);
+    }
 }
 
 .scenario-card__cta {
